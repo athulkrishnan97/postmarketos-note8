@@ -1,0 +1,37 @@
+# Reference: <https://postmarketos.org/devicepkg>
+maintainer="athul <athul@postmarketos.org>"
+pkgname=device-samsung-greatlte
+pkgdesc="Samsung Galaxy Note 8"
+pkgver=1
+pkgrel=2
+url="https://postmarketos.org"
+license="MIT"
+arch="aarch64"
+options="!check !archcheck"
+depends="
+	device-samsung-greatlte-kernel
+	mkbootimg
+	postmarketos-base
+	uniloader-samsung-greatlte
+"
+makedepends="devicepkg-dev"
+subpackages="$pkgname-kernel:kernel"
+source="deviceinfo"
+
+build() {
+	devicepkg_build $startdir $pkgname
+}
+
+package() {
+	devicepkg_package $startdir $pkgname
+}
+
+kernel() {
+	pkgdesc="Kernel for the Samsung Galaxy Note 8"
+	depends="$pkgname linux-postmarketos-exynos8895"
+	mkdir "$subpkgdir"
+}
+
+sha512sums="
+83c70ebe5d4e254d166e189f07f0e102dc10e54fc03106238fb0ca2b5f9f47da59b0cc6db3ed5e320205738ed8e3458641944b8cd10bfc6e5226a96c19ebb8f3  deviceinfo
+"

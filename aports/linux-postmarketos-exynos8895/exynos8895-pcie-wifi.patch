@@ -1,0 +1,3383 @@
+diff --git a/arch/arm64/boot/dts/exynos/exynos8895-pinctrl.dtsi b/arch/arm64/boot/dts/exynos/exynos8895-pinctrl.dtsi
+index 16903ce63..8c8d397ae 100644
+--- a/arch/arm64/boot/dts/exynos/exynos8895-pinctrl.dtsi
++++ b/arch/arm64/boot/dts/exynos/exynos8895-pinctrl.dtsi
+@@ -104,6 +104,12 @@ pcie_wake: pcie-wake-pins {
+ 		samsung,pin-pud = <EXYNOS_PIN_PULL_NONE>;
+ 	};
+ 
++	pmic_irq: pmic-irq-pins {
++		samsung,pins = "gpa3-6";
++		samsung,pin-pud = <EXYNOS_PIN_PULL_UP>;
++		samsung,pin-drv = <EXYNOS7_PIN_DRV_LV4>;
++	};
++
+ 	uart1_bus: uart1-bus-pins {
+ 		samsung,pins = "gpa4-4", "gpa4-3", "gpa4-2", "gpa4-1";
+ 		samsung,pin-function = <EXYNOS_PIN_FUNC_2>;
+@@ -201,6 +207,22 @@ bt_btwake: bt-btwake-pins {
+ 		samsung,pin-pud-pdn = <EXYNOS_PIN_PULL_NONE>;
+ 	};
+ 
++	pcie0_clkreq: pcie0-clkreq-pins {
++		samsung,pins = "gpj1-0";
++		samsung,pin-function = <EXYNOS_PIN_FUNC_2>;
++		samsung,pin-pud = <EXYNOS_PIN_PULL_UP>;
++		samsung,pin-drv = <EXYNOS7_PIN_DRV_LV4>;
++		samsung,pin-con-pdn = <EXYNOS_PIN_PDN_PREV>;
++	};
++
++	pcie0_perst: pcie0-perst-pins {
++		samsung,pins = "gpj1-2";
++		samsung,pin-function = <EXYNOS_PIN_FUNC_OUTPUT>;
++		samsung,pin-pud = <EXYNOS_PIN_PULL_NONE>;
++		samsung,pin-drv = <EXYNOS7_PIN_DRV_LV4>;
++		samsung,pin-con-pdn = <EXYNOS_PIN_PDN_PREV>;
++	};
++
+ 	bt_en: bt-en-pins {
+ 		samsung,pins = "gpj1-7";
+ 		samsung,pin-function = <EXYNOS_PIN_FUNC_OUTPUT>;
+diff --git a/arch/arm64/boot/dts/exynos/exynos8895.dtsi b/arch/arm64/boot/dts/exynos/exynos8895.dtsi
+index f92d2a8a2..87155659a 100644
+--- a/arch/arm64/boot/dts/exynos/exynos8895.dtsi
++++ b/arch/arm64/boot/dts/exynos/exynos8895.dtsi
+@@ -6,6 +6,7 @@
+  */
+ 
+ #include <dt-bindings/clock/samsung,exynos8895.h>
++#include <dt-bindings/gpio/gpio.h>
+ #include <dt-bindings/interrupt-controller/arm-gic.h>
+ 
+ / {
+@@ -67,6 +68,10 @@ cpu4: cpu@0 {
+ 			compatible = "samsung,mongoose-m2";
+ 			reg = <0x0>;
+ 			enable-method = "psci";
++			clocks = <&cmu_cpucl1 CLK_CLUSTER1_CLK>;
++			clock-names = "cluster1_clk";
++			operating-points-v2 = <&cluster1_opp_table>;
++			cpu-supply = <&buck3_reg>;
+ 		};
+ 
+ 		cpu5: cpu@1 {
+@@ -74,6 +79,10 @@ cpu5: cpu@1 {
+ 			compatible = "samsung,mongoose-m2";
+ 			reg = <0x1>;
+ 			enable-method = "psci";
++			clocks = <&cmu_cpucl1 CLK_CLUSTER1_CLK>;
++			clock-names = "cluster1_clk";
++			operating-points-v2 = <&cluster1_opp_table>;
++			cpu-supply = <&buck3_reg>;
+ 		};
+ 
+ 		cpu6: cpu@2 {
+@@ -81,6 +90,10 @@ cpu6: cpu@2 {
+ 			compatible = "samsung,mongoose-m2";
+ 			reg = <0x2>;
+ 			enable-method = "psci";
++			clocks = <&cmu_cpucl1 CLK_CLUSTER1_CLK>;
++			clock-names = "cluster1_clk";
++			operating-points-v2 = <&cluster1_opp_table>;
++			cpu-supply = <&buck3_reg>;
+ 		};
+ 
+ 		cpu7: cpu@3 {
+@@ -88,6 +101,10 @@ cpu7: cpu@3 {
+ 			compatible = "samsung,mongoose-m2";
+ 			reg = <0x3>;
+ 			enable-method = "psci";
++			clocks = <&cmu_cpucl1 CLK_CLUSTER1_CLK>;
++			clock-names = "cluster1_clk";
++			operating-points-v2 = <&cluster1_opp_table>;
++			cpu-supply = <&buck3_reg>;
+ 		};
+ 
+ 		cpu0: cpu@100 {
+@@ -95,6 +112,10 @@ cpu0: cpu@100 {
+ 			compatible = "arm,cortex-a53";
+ 			reg = <0x100>;
+ 			enable-method = "psci";
++			clocks = <&cmu_cpucl0 CLK_CLUSTER0_CLK>;
++			clock-names = "cluster0_clk";
++			operating-points-v2 = <&cluster0_opp_table>;
++			cpu-supply = <&buck2_reg>;
+ 		};
+ 
+ 		cpu1: cpu@101 {
+@@ -102,6 +123,10 @@ cpu1: cpu@101 {
+ 			compatible = "arm,cortex-a53";
+ 			reg = <0x101>;
+ 			enable-method = "psci";
++			clocks = <&cmu_cpucl0 CLK_CLUSTER0_CLK>;
++			clock-names = "cluster0_clk";
++			operating-points-v2 = <&cluster0_opp_table>;
++			cpu-supply = <&buck2_reg>;
+ 		};
+ 
+ 		cpu2: cpu@102 {
+@@ -109,6 +134,10 @@ cpu2: cpu@102 {
+ 			compatible = "arm,cortex-a53";
+ 			reg = <0x102>;
+ 			enable-method = "psci";
++			clocks = <&cmu_cpucl0 CLK_CLUSTER0_CLK>;
++			clock-names = "cluster0_clk";
++			operating-points-v2 = <&cluster0_opp_table>;
++			cpu-supply = <&buck2_reg>;
+ 		};
+ 
+ 		cpu3: cpu@103 {
+@@ -116,6 +145,114 @@ cpu3: cpu@103 {
+ 			compatible = "arm,cortex-a53";
+ 			reg = <0x103>;
+ 			enable-method = "psci";
++			clocks = <&cmu_cpucl0 CLK_CLUSTER0_CLK>;
++			clock-names = "cluster0_clk";
++			operating-points-v2 = <&cluster0_opp_table>;
++			cpu-supply = <&buck2_reg>;
++		};
++	};
++
++	/*
++	 * OPP tables cover the STOCK N950F maximums (1.7 GHz little /
++	 * 2.3 GHz big); the higher downstream steps (2.5-2.8 GHz) exist
++	 * in the downstream table but are beyond stock.  Voltages are the
++	 * worst normal ASV bin from the Exynos Characteristic Table plus
++	 * margin, well within the 1.2 V cap of the vdd_cpucl0/1 bucks.
++	 * The rails are supplied by the S2MPS17 PMIC (see the speedy node).
++	 */
++	cluster0_opp_table: opp-table-0 {
++		compatible = "operating-points-v2";
++		opp-shared;
++
++		/* A53 little cluster, stock N950F max 1.7GHz */
++
++			opp-1690000000 {
++			opp-hz = /bits/ 64 <1690000000>;
++			opp-microvolt = <1100000>;
++		};
++
++		opp-1456000000 {
++			opp-hz = /bits/ 64 <1456000000>;
++			opp-microvolt = <1018750>;
++		};
++
++		opp-1248000000 {
++			opp-hz = /bits/ 64 <1248000000>;
++			opp-microvolt = <1000000>;
++		};
++
++		opp-1066000000 {
++			opp-hz = /bits/ 64 <1066000000>;
++			opp-microvolt = <981250>;
++		};
++
++		opp-832000000 {
++			opp-hz = /bits/ 64 <832000000>;
++			opp-microvolt = <943750>;
++		};
++
++		opp-598000000 {
++			opp-hz = /bits/ 64 <598000000>;
++			opp-microvolt = <906250>;
++		};
++
++		opp-455000000 {
++			opp-hz = /bits/ 64 <455000000>;
++			opp-microvolt = <893750>;
++		};
++	};
++
++	cluster1_opp_table: opp-table-1 {
++		compatible = "operating-points-v2";
++		opp-shared;
++
++		/* M2 big cluster, stock N950F max 2.3GHz; higher steps
++		 * (2.5-2.8GHz) exist in the downstream table but are beyond
++		 * stock and need voltage control we don't have. */
++
++	
++
++
++
++
++		opp-1703000000 {
++			opp-hz = /bits/ 64 <1703000000>;
++			opp-microvolt = <1025000>;
++		};
++
++		opp-1469000000 {
++			opp-hz = /bits/ 64 <1469000000>;
++			opp-microvolt = <1000000>;
++		};
++
++		opp-1261000000 {
++			opp-hz = /bits/ 64 <1261000000>;
++			opp-microvolt = <987500>;
++		};
++
++		opp-1170000000 {
++			opp-hz = /bits/ 64 <1170000000>;
++			opp-microvolt = <975000>;
++		};
++
++		opp-1066000000 {
++			opp-hz = /bits/ 64 <1066000000>;
++			opp-microvolt = <962500>;
++		};
++
++		opp-962000000 {
++			opp-hz = /bits/ 64 <962000000>;
++			opp-microvolt = <950000>;
++		};
++
++		opp-858000000 {
++			opp-hz = /bits/ 64 <858000000>;
++			opp-microvolt = <937500>;
++		};
++
++		opp-741000000 {
++			opp-hz = /bits/ 64 <741000000>;
++			opp-microvolt = <925000>;
+ 		};
+ 	};
+ 
+@@ -1296,6 +1433,48 @@ pinctrl_fsys1: pinctrl@11430000 {
+ 			interrupts = <GIC_SPI 342 IRQ_TYPE_LEVEL_HIGH>;
+ 		};
+ 
++		pcie_phy0: pcie-phy@116d0000 {
++			compatible = "samsung,exynos8895-pcie-phy";
++			reg = <0x116d0000 0x1000>,
++			      <0x116c0000 0x200>;
++			reg-names = "phy", "pcs";
++			samsung,pmu-syscon = <&pmu_system_controller>;
++			samsung,fsys-sysreg = <&syscon_fsys1>;
++			#phy-cells = <0>;
++			status = "disabled";
++		};
++
++		pcie0: pcie@116a0000 {
++			compatible = "samsung,exynos8895-pcie";
++			device_type = "pci";
++			reg = <0x116a0000 0x1000>,
++			      <0x11700000 0x1000>,
++			      <0x11bff000 0x1000>;
++			reg-names = "elbi", "dbi", "config";
++			#address-cells = <3>;
++			#size-cells = <2>;
++			#interrupt-cells = <1>;
++			ranges = <0x82000000 0 0x11800000 0x11800000 0 0x500000>;
++			bus-range = <0x00 0xff>;
++			interrupt-map-mask = <0 0 0 0>;
++			interrupt-map = <0 0 0 0 &gic GIC_SPI 345 IRQ_TYPE_LEVEL_HIGH>;
++			interrupts = <GIC_SPI 345 IRQ_TYPE_LEVEL_HIGH>;
++			reset-gpios = <&gpj1 2 GPIO_ACTIVE_LOW>;
++			wlan-en-gpios = <&gpj1 3 GPIO_ACTIVE_HIGH>;
++			pinctrl-names = "default";
++			pinctrl-0 = <&pcie0_clkreq &pcie0_perst &cfg_wlanen>;
++			phys = <&pcie_phy0>;
++			clocks = <&cmu_fsys1 CLK_GOUT_FSYS1_PCIE_PHY_REF_CLK_IN>,
++				 <&cmu_fsys1 CLK_GOUT_FSYS1_PCIE_DBI_ACLK_0>,
++				 <&cmu_fsys1 CLK_GOUT_FSYS1_PCIE_MSTR_ACLK_0>,
++				 <&cmu_fsys1 CLK_GOUT_FSYS1_PCIE_SLV_ACLK_0>,
++				 <&cmu_fsys1 CLK_GOUT_FSYS1_PCIE_PCIE_SUB_CTRL_INST_0_I_DRIVER_APB_CLK>,
++				 <&cmu_fsys1 CLK_GOUT_FSYS1_PCIE_PIPE2_DIGITAL_X2_WRAP_INST_0_I_APB_PCLK_SCL>,
++				 <&cmu_fsys1 CLK_GOUT_FSYS1_PCIE_IEEE1500_WRAPPER_FOR_PCIE_PHY_LC_X2_INST_0_I_SCL_APB_PCLK>;
++			num-lanes = <1>;
++			status = "disabled";
++		};
++
+ 		mmc: mmc@11500000 {
+ 			compatible = "samsung,exynos8895-dw-mshc-smu",
+ 				     "samsung,exynos7-dw-mshc-smu";
+@@ -1317,11 +1496,62 @@ pinctrl_abox: pinctrl@13e60000 {
+ 			reg = <0x13e60000 0x1000>;
+ 		};
+ 
++		/*
++		 * Mali-G71 (G3D).  The embedded G3D power domain is turned on
++		 * by the CMU init (see the cmu_g3d compatible) before any
++		 * driver touches the GPU, so no power-domain is declared
++		 * here.  The DVFS ladder of the ECT (PLL_G3D: 838/764/682/
++		 * 572/546/455/384/338/260 MHz, ASV voltages in 6.25 mV steps)
++		 * is in the clock driver; this OPP table is deliberately
++		 * limited to the stock 546 MHz boot rate until runtime
++		 * switching is validated on this silicon.
++		 */
++		cmu_g3d: clock-controller@13800000 {
++			compatible = "samsung,exynos8895-cmu-g3d";
++			reg = <0x13800000 0x8000>;
++			#clock-cells = <1>;
++			clocks = <&oscclk>, <&cmu_top CLK_DOUT_CMU_G3D_SWITCH>;
++			clock-names = "oscclk", "switch";
++		};
++
++		gpu: gpu@13900000 {
++			compatible = "arm,mali-bifrost", "arm,mali";
++			reg = <0x13900000 0x5000>;
++			interrupts = <GIC_SPI 60 IRQ_TYPE_LEVEL_HIGH>,
++				     <GIC_SPI 61 IRQ_TYPE_LEVEL_HIGH>,
++				     <GIC_SPI 59 IRQ_TYPE_LEVEL_HIGH>;
++			interrupt-names = "job", "mmu", "gpu";
++			clocks = <&cmu_g3d CLK_MOUT_G3D_BUSD>;
++			clock-names = "core";
++			mali-supply = <&buck6_reg>;
++			operating-points-v2 = <&gpu_opp_table>;
++		};
++
++		gpu_opp_table: opp-table-gpu {
++			compatible = "operating-points-v2";
++
++			/* 546 MHz, worst ASV bin of the ECT dvfs_g3d table
++			 * (725 mV) plus margin, within the 850 mV vdd_g3d cap.
++			 */
++			opp-546000000 {
++				opp-hz = /bits/ 64 <800000000>;
++				opp-microvolt = <800000>;
++			};
++		};
++
+ 		pinctrl_vts: pinctrl@14080000 {
+ 			compatible = "samsung,exynos8895-pinctrl";
+ 			reg = <0x14080000 0x1000>;
+ 		};
+ 
++		cmu_busco: clock-controller@15a00000 {
++			compatible = "samsung,exynos8895-cmu-busco";
++			reg = <0x15a00000 0x8000>;
++			#clock-cells = <1>;
++			clocks = <&cmu_top CLK_DOUT_CMU_BUSC_BUS>;
++			clock-names = "bus";
++		};
++
+ 		pinctrl_busc: pinctrl@15a30000 {
+ 			compatible = "samsung,exynos8895-pinctrl";
+ 			reg = <0x15a30000 0x1000>;
+@@ -1336,10 +1566,108 @@ cmu_top: clock-controller@15a80000 {
+ 			clock-names = "oscclk";
+ 		};
+ 
++		/*
++		 * SPEEDY (Serial Protocol in an EffEctive Digital waY) is a
++		 * Samsung proprietary serial bus; the S2MPS17 PMIC hangs off
++		 * it.  The adapter presents it to the I2C core, so the PMIC
++		 * child uses a regular I2C address (the PMIC register page is
++		 * slave address 0x01).
++		 */
++		speedy: speedy@15b50000 {
++			compatible = "samsung,exynos-speedy";
++			reg = <0x15b50000 0x2000>;
++			#address-cells = <1>;
++			#size-cells = <0>;
++			pinctrl-names = "default";
++			pinctrl-0 = <&speedy_bus>;
++			clocks = <&cmu_busco CLK_GOUT_BUSC_SPEEDY_PCLK>;
++			clock-names = "gate_speedy";
++
++			s2mps17_pmic: s2mps17-pmic@01 {
++				compatible = "samsung,s2mps17-pmic";
++				reg = <0x01>;
++				interrupt-parent = <&gpa3>;
++				interrupts = <6 IRQ_TYPE_LEVEL_LOW>;
++				pinctrl-names = "default";
++				pinctrl-0 = <&pmic_irq>;
++
++				regulators {
++					buck1_reg: BUCK1 {
++						regulator-name = "vdd_mif";
++						regulator-min-microvolt = <450000>;
++						regulator-max-microvolt = <950000>;
++						regulator-always-on;
++						regulator-boot-on;
++					};
++
++					buck2_reg: BUCK2 {
++						regulator-name = "vdd_cpucl0";
++						regulator-min-microvolt = <450000>;
++						regulator-max-microvolt = <1200000>;
++						regulator-always-on;
++						regulator-boot-on;
++					};
++
++					buck3_reg: BUCK3 {
++						regulator-name = "vdd_cpucl1";
++						regulator-min-microvolt = <450000>;
++						regulator-max-microvolt = <1200000>;
++						regulator-always-on;
++						regulator-boot-on;
++					};
++
++					buck6_reg: BUCK6 {
++						regulator-name = "vdd_g3d";
++						regulator-min-microvolt = <450000>;
++						regulator-max-microvolt = <850000>;
++						regulator-always-on;
++						regulator-boot-on;
++					};
++					ldo34_reg: LDO34 {
++						regulator-name = "tsp_io";
++						regulator-min-microvolt = <1850000>;
++						regulator-max-microvolt = <1850000>;
++						regulator-boot-on;
++					};
++
++					ldo35_reg: LDO35 {
++						regulator-name = "tsp_avdd";
++						regulator-min-microvolt = <3300000>;
++						regulator-max-microvolt = <3300000>;
++						regulator-boot-on;
++					};
++				};
++			};
++		};
++
++		cmu_cpucl0: clock-controller@16800000 {
++			compatible = "samsung,exynos8895-cmu-cpucl0";
++			reg = <0x16800000 0x8000>;
++			#clock-cells = <1>;
++			clocks = <&oscclk>, <&cmu_top CLK_DOUT_CMU_CPUCL0_SWITCH>;
++			clock-names = "oscclk", "dout_cmu_cpucl0_switch";
++		};
++
++		cmu_cpucl1: clock-controller@16900000 {
++			compatible = "samsung,exynos8895-cmu-cpucl1";
++			reg = <0x16900000 0x8000>;
++			#clock-cells = <1>;
++			clocks = <&oscclk>, <&cmu_top CLK_DOUT_CMU_CPUCL1_SWITCH>;
++			clock-names = "oscclk", "dout_cmu_cpucl1_switch";
++		};
++
+ 		pmu_system_controller: system-controller@16480000 {
+ 			compatible = "samsung,exynos8895-pmu",
+ 				     "samsung,exynos7-pmu", "syscon";
+ 			reg = <0x16480000 0x10000>;
++
++			reboot-mode {
++				compatible = "syscon-reboot-mode";
++				offset = <0x080c>;
++				mode-bootloader = <0x1234567d>;
++				mode-download = <0x12345671>;
++				mode-recovery = <0x12345674>;
++			};
+ 		};
+ 
+ 		pinctrl_alive: pinctrl@164b0000 {
+diff --git a/arch/arm64/configs/defconfig b/arch/arm64/configs/defconfig
+index b67d5b1fc..7706174b1 100644
+--- a/arch/arm64/configs/defconfig
++++ b/arch/arm64/configs/defconfig
+@@ -567,6 +567,7 @@ CONFIG_I2C_MT65XX=y
+ CONFIG_I2C_MV64XXX=y
+ CONFIG_I2C_OMAP=y
+ CONFIG_I2C_OWL=y
++CONFIG_I2C_SPEEDY=y
+ CONFIG_I2C_APPLE=m
+ CONFIG_I2C_PXA=y
+ CONFIG_I2C_QCOM_CCI=m
+@@ -1040,7 +1041,7 @@ CONFIG_DRM_IMX_LCDIF=m
+ CONFIG_DRM_MESON=m
+ CONFIG_DRM_PL111=m
+ CONFIG_DRM_LIMA=m
+-CONFIG_DRM_PANFROST=m
++CONFIG_DRM_PANFROST=y
+ CONFIG_DRM_PANTHOR=m
+ CONFIG_DRM_TIDSS=m
+ CONFIG_DRM_ZYNQMP_DPSUB=m
+diff --git a/drivers/clk/samsung/clk-cpu.c b/drivers/clk/samsung/clk-cpu.c
+index ffc33e5de..86aa4e61f 100644
+--- a/drivers/clk/samsung/clk-cpu.c
++++ b/drivers/clk/samsung/clk-cpu.c
+@@ -542,7 +542,6 @@ static int exynos850_cpuclk_post_rate_change(struct clk_notifier_data *ndata,
+ 					     struct exynos_cpuclk *cpuclk)
+ {
+ 	const struct exynos_cpuclk_regs * const regs = cpuclk->chip->regs;
+-	const struct clk_hw *alt_parent = cpuclk->alt_parent;
+ 	void __iomem *base = cpuclk->base;
+ 	unsigned long flags;
+ 	u32 mux_reg;
+@@ -560,8 +559,93 @@ static int exynos850_cpuclk_post_rate_change(struct clk_notifier_data *ndata,
+ 
+ 	spin_unlock_irqrestore(cpuclk->lock, flags);
+ 
+-	/* Set alt_parent rate back to max */
+-	return exynos850_alt_parent_set_max_rate(alt_parent, 0);
++	return 0;
++}
++
++/* ---- Exynos8895 ---------------------------------------------------------- */
++
++/*
++ * Exynos8895 clusters are clocked through a read-only (fixed ratio 1) DIV
++ * directly from the output of the MUX_CLK_CPUCLx_PLL mux. The cluster bus
++ * clock dividers (ACLK/ATCLK/PCLKDBG/CNTCLK) use the same ratio for all
++ * CPU frequencies, so unlike Exynos850 there is no divider programming
++ * during the rate change; only the alternate parent switch is performed
++ * while the cluster PLL is being relocked. Both clusters use the same
++ * register layout.
++ */
++static const struct exynos_cpuclk_regs e8895cl0_cpuclk_regs = {
++	.mux	= 0x1000,
++};
++
++static const struct exynos_cpuclk_regs e8895cl1_cpuclk_regs = {
++	.mux	= 0x1000,
++};
++
++/* Handler for pre-rate change notification from parent clock */
++static int exynos8895_cpuclk_pre_rate_change(struct clk_notifier_data *ndata,
++					     struct exynos_cpuclk *cpuclk)
++{
++	const struct exynos_cpuclk_regs * const regs = cpuclk->chip->regs;
++	void __iomem *base = cpuclk->base;
++	unsigned long flags;
++	u32 mux_reg;
++
++	/* No actions are needed when switching to or from OSCCLK parent */
++	if (ndata->new_rate == E850_OSCCLK || ndata->old_rate == E850_OSCCLK)
++		return 0;
++
++	/*
++	 * The 8895 clusters tolerate the brief frequency overshoot while
++	 * the PLL relocks (same as Exynos5433); unlike the 850 there is no
++	 * need to throttle the alternate clock, and touching the shared
++	 * CMU_TOP divider rate here fails with -EBUSY on this topology.
++	 *
++	 * Make sure the alternate source is the CMU_TOP switch clock
++	 * (1.066 GHz): if the bootloader left PLL_CON0_MUX_CLKCMU_CPUCLx_
++	 * SWITCH_USER selecting OSCCLK (26 MHz), switching the cluster to
++	 * it mid-relock starves the cores and hangs the SoC.
++	 */
++	spin_lock_irqsave(cpuclk->lock, flags);
++
++	mux_reg = readl(base + 0x100);
++	if (!(mux_reg & BIT(4))) {
++		writel(mux_reg | BIT(4), base + 0x100);
++		wait_until_mux_stable(base + 0x100, 16, 1, 0);
++	}
++
++	/* Select the alternate parent */
++	mux_reg = readl(base + regs->mux);
++	writel(mux_reg | 1, base + regs->mux);
++	wait_until_mux_stable(base + regs->mux, 16, 1, 0);
++
++	spin_unlock_irqrestore(cpuclk->lock, flags);
++
++	return 0;
++}
++
++/* Handler for post-rate change notification from parent clock */
++static int exynos8895_cpuclk_post_rate_change(struct clk_notifier_data *ndata,
++					      struct exynos_cpuclk *cpuclk)
++{
++	const struct exynos_cpuclk_regs * const regs = cpuclk->chip->regs;
++	void __iomem *base = cpuclk->base;
++	unsigned long flags;
++	u32 mux_reg;
++
++	/* No actions are needed when switching to or from OSCCLK parent */
++	if (ndata->new_rate == E850_OSCCLK || ndata->old_rate == E850_OSCCLK)
++		return 0;
++
++	spin_lock_irqsave(cpuclk->lock, flags);
++
++	/* Select main parent (PLL) for mux */
++	mux_reg = readl(base + regs->mux);
++	writel(mux_reg & ~1, base + regs->mux);
++	wait_until_mux_stable(base + regs->mux, 16, 1, 0);
++
++	spin_unlock_irqrestore(cpuclk->lock, flags);
++
++	return 0;
+ }
+ 
+ /* -------------------------------------------------------------------------- */
+@@ -638,6 +722,16 @@ static const struct exynos_cpuclk_chip exynos_clkcpu_chips[] = {
+ 		.pre_rate_cb	= exynos850_cpuclk_pre_rate_change,
+ 		.post_rate_cb	= exynos850_cpuclk_post_rate_change,
+ 	},
++	[CPUCLK_LAYOUT_E8895_CL0] = {
++		.regs		= &e8895cl0_cpuclk_regs,
++		.pre_rate_cb	= exynos8895_cpuclk_pre_rate_change,
++		.post_rate_cb	= exynos8895_cpuclk_post_rate_change,
++	},
++	[CPUCLK_LAYOUT_E8895_CL1] = {
++		.regs		= &e8895cl1_cpuclk_regs,
++		.pre_rate_cb	= exynos8895_cpuclk_pre_rate_change,
++		.post_rate_cb	= exynos8895_cpuclk_post_rate_change,
++	},
+ };
+ 
+ /* helper function to register a CPU clock */
+diff --git a/drivers/clk/samsung/clk-cpu.h b/drivers/clk/samsung/clk-cpu.h
+index 892843611..c6351abcf 100644
+--- a/drivers/clk/samsung/clk-cpu.h
++++ b/drivers/clk/samsung/clk-cpu.h
+@@ -19,12 +19,16 @@
+  * @CPUCLK_LAYOUT_E5433: Exynos5433 compatible layout
+  * @CPUCLK_LAYOUT_E850_CL0: Exynos850 cluster 0 compatible layout
+  * @CPUCLK_LAYOUT_E850_CL1: Exynos850 cluster 1 compatible layout
++ * @CPUCLK_LAYOUT_E8895_CL0: Exynos8895 cluster 0 compatible layout
++ * @CPUCLK_LAYOUT_E8895_CL1: Exynos8895 cluster 1 compatible layout
+  */
+ enum exynos_cpuclk_layout {
+ 	CPUCLK_LAYOUT_E4210,
+ 	CPUCLK_LAYOUT_E5433,
+ 	CPUCLK_LAYOUT_E850_CL0,
+ 	CPUCLK_LAYOUT_E850_CL1,
++	CPUCLK_LAYOUT_E8895_CL0,
++	CPUCLK_LAYOUT_E8895_CL1,
+ };
+ 
+ /**
+diff --git a/drivers/clk/samsung/clk-exynos8895.c b/drivers/clk/samsung/clk-exynos8895.c
+index e6980a8f0..9a6c3d760 100644
+--- a/drivers/clk/samsung/clk-exynos8895.c
++++ b/drivers/clk/samsung/clk-exynos8895.c
+@@ -6,9 +6,11 @@
+  * Common Clock Framework support for Exynos8895 SoC.
+  */
+ 
++#include <linux/clk.h>
+ #include <linux/clk-provider.h>
+ #include <linux/mod_devicetable.h>
+ #include <linux/of.h>
++#include <linux/of_address.h>
+ #include <linux/platform_device.h>
+ 
+ #include <dt-bindings/clock/samsung,exynos8895.h>
+@@ -18,11 +20,15 @@
+ 
+ /* NOTE: Must be equal to the last clock ID increased by one */
+ #define CLKS_NR_TOP	(CLK_GOUT_CMU_VPU_BUS + 1)
++#define CLKS_NR_BUSC	(CLK_GOUT_BUSC_SPEEDY_PCLK + 1)
++#define CLKS_NR_G3D	(CLK_GOUT_G3D_AGPU + 1)
+ #define CLKS_NR_FSYS0	(CLK_GOUT_FSYS0_XIU_P_FSYS0_ACLK + 1)
+ #define CLKS_NR_FSYS1	(CLK_GOUT_FSYS1_XIU_P_FSYS1_ACLK + 1)
+ #define CLKS_NR_PERIC0	(CLK_GOUT_PERIC0_USI03_I_SCLK_USI + 1)
+ #define CLKS_NR_PERIC1	(CLK_GOUT_PERIC1_XIU_P_PERIC1_ACLK + 1)
+ #define CLKS_NR_PERIS	(CLK_GOUT_PERIS_XIU_P_PERIS_ACLK + 1)
++#define CLKS_NR_CPUCL0	(CLK_CLUSTER0_CLK + 1)
++#define CLKS_NR_CPUCL1	(CLK_CLUSTER1_CLK + 1)
+ 
+ /* ---- CMU_TOP ------------------------------------------------------------- */
+ 
+@@ -1351,6 +1357,41 @@ CLK_OF_DECLARE(exynos8895_cmu_top, "samsung,exynos8895-cmu-top",
+ #define CLK_CON_GAT_GOUT_BLK_PERIS_UID_WDT_CLUSTER1_IPCLKPORT_PCLK		0x208c
+ #define CLK_CON_GAT_GOUT_BLK_PERIS_UID_XIU_P_PERIS_IPCLKPORT_ACLK		0x2090
+ 
++/* ---- CMU_BUSCO ---------------------------------------------------------- */
++
++/* Register Offset definitions for CMU_BUSCO (0x15a00000) */
++#define CLK_CON_DIV_DIV_CLK_BUSC_BUSP					0x1800
++#define CLK_CON_GAT_GOUT_BLK_BUSC_UID_SPEEDY_IPCLKPORT_PCLK		0x2124
++
++static const unsigned long busc_clk_regs[] __initconst = {
++	CLK_CON_DIV_DIV_CLK_BUSC_BUSP,
++	CLK_CON_GAT_GOUT_BLK_BUSC_UID_SPEEDY_IPCLKPORT_PCLK,
++};
++
++static const struct samsung_div_clock busc_div_clks[] __initconst = {
++	/* The divider ratio is left at whatever the bootloader configured. */
++	DIV(CLK_DOUT_BUSC_BUSP, "dout_busc_busp", "dout_cmu_busc_bus",
++	    CLK_CON_DIV_DIV_CLK_BUSC_BUSP, 0, 4),
++};
++
++static const struct samsung_gate_clock busc_gate_clks[] __initconst = {
++	GATE(CLK_GOUT_BUSC_SPEEDY_PCLK, "gout_busc_speedy_pclk",
++	     "dout_busc_busp",
++	     CLK_CON_GAT_GOUT_BLK_BUSC_UID_SPEEDY_IPCLKPORT_PCLK,
++	     21, 0, 0),
++};
++
++static const struct samsung_cmu_info busc_cmu_info __initconst = {
++	.div_clks		= busc_div_clks,
++	.nr_div_clks		= ARRAY_SIZE(busc_div_clks),
++	.gate_clks		= busc_gate_clks,
++	.nr_gate_clks		= ARRAY_SIZE(busc_gate_clks),
++	.nr_clk_ids		= CLKS_NR_BUSC,
++	.clk_regs		= busc_clk_regs,
++	.nr_clk_regs		= ARRAY_SIZE(busc_clk_regs),
++	.clk_name		= "bus",
++};
++
+ static const unsigned long peris_clk_regs[] __initconst = {
+ 	PLL_CON0_MUX_CLKCMU_PERIS_BUS_USER,
+ 	PLL_CON2_MUX_CLKCMU_PERIS_BUS_USER,
+@@ -2759,6 +2800,769 @@ static const struct samsung_cmu_info peric1_cmu_info __initconst = {
+ 	.clk_name		= "bus",
+ };
+ 
++/* ---- CMU_CPUCL0 ---------------------------------------------------------- */
++
++/* Register Offset definitions for CMU_CPUCL0 (0x16800000) */
++#define PLL_LOCKTIME_PLL_CPUCL0				0x0000
++#define PLL_CON0_MUX_CLKCMU_CPUCL0_SWITCH_USER		0x0100
++#define PLL_CON0_PLL_CPUCL0				0x0120
++#define CLK_CON_MUX_MUX_CLK_CPUCL0_PLL			0x1000
++#define CLK_CON_DIV_DIV_CLK_CLUSTER0_ACLK		0x1800
++#define CLK_CON_DIV_DIV_CLK_CLUSTER0_ATCLK		0x1804
++#define CLK_CON_DIV_DIV_CLK_CPUCL0_CMUREF		0x1808
++#define CLK_CON_DIV_DIV_CLK_CPUCL0_CPU			0x180c
++#define CLK_CON_DIV_DIV_CLK_CPUCL0_PCLK			0x1810
++#define CLK_CON_DIV_DIV_CLK_CPUCL0_PCLKDBG		0x1814
++#define CLK_CON_GAT_CLK_BLK_CPUCL0_UID_CPUCL0_CMU_CPUCL0_IPCLKPORT_PCLK	0x2000
++#define CLK_CON_GAT_GATE_CLK_CPUCL0_CPU			0x2020
++
++static const unsigned long cpucl0_clk_regs[] __initconst = {
++	PLL_LOCKTIME_PLL_CPUCL0,
++	PLL_CON0_MUX_CLKCMU_CPUCL0_SWITCH_USER,
++	PLL_CON0_PLL_CPUCL0,
++	CLK_CON_MUX_MUX_CLK_CPUCL0_PLL,
++	CLK_CON_DIV_DIV_CLK_CLUSTER0_ACLK,
++	CLK_CON_DIV_DIV_CLK_CLUSTER0_ATCLK,
++	CLK_CON_DIV_DIV_CLK_CPUCL0_CMUREF,
++	CLK_CON_DIV_DIV_CLK_CPUCL0_CPU,
++	CLK_CON_DIV_DIV_CLK_CPUCL0_PCLK,
++	CLK_CON_DIV_DIV_CLK_CPUCL0_PCLKDBG,
++	CLK_CON_GAT_CLK_BLK_CPUCL0_UID_CPUCL0_CMU_CPUCL0_IPCLKPORT_PCLK,
++	CLK_CON_GAT_GATE_CLK_CPUCL0_CPU,
++};
++
++/* List of parent clocks for Muxes in CMU_CPUCL0 */
++PNAME(mout_pll_cpucl0_p)		= { "oscclk", "fout_cpucl0_pll" };
++PNAME(mout_cpucl0_switch_user_p)	= { "oscclk", "dout_cmu_cpucl0_switch" };
++PNAME(mout_cpucl0_pll_p)		= { "mout_pll_cpucl0",
++					    "mout_cpucl0_switch_user" };
++
++/*
++ * PLL rate table for the A53 cluster PLL. All rates are exact multiples
++ * of the 26 MHz crystal: fout = 26 MHz * M / (P * 2^S) with P = 3 and the
++ * smallest S that keeps M an integer in the 64..1023 range. The 1066 MHz
++ * entry uses the P/M/S values from the downstream Samsung rate table
++ * (M=492, P=3, S=2) instead of the minimal-S solution (M=123, P=3, S=0),
++ * as this is the one CPU PLL configuration validated on this silicon.
++ */
++static const struct samsung_pll_rate_table cpucl0_pll_rates[] __initconst = {
++	PLL_35XX_RATE(26 * MHZ, 2002000000U, 231, 3, 0),
++	PLL_35XX_RATE(26 * MHZ, 1898000000U, 219, 3, 0),
++	PLL_35XX_RATE(26 * MHZ, 1794000000U, 207, 3, 0),
++	PLL_35XX_RATE(26 * MHZ, 1690000000U, 195, 3, 0),
++	PLL_35XX_RATE(26 * MHZ, 1456000000U, 168, 3, 0),
++	PLL_35XX_RATE(26 * MHZ, 1248000000U, 144, 3, 0),
++	PLL_35XX_RATE(26 * MHZ, 1066000000U, 492, 3, 2),
++	PLL_35XX_RATE(26 * MHZ, 1053000000U, 243, 3, 1),
++	PLL_35XX_RATE(26 * MHZ, 949000000U,  219, 3, 1),
++	PLL_35XX_RATE(26 * MHZ, 832000000U,  96,  3, 0),
++	PLL_35XX_RATE(26 * MHZ, 715000000U,  165, 3, 1),
++	PLL_35XX_RATE(26 * MHZ, 598000000U,  69,  3, 0),
++	PLL_35XX_RATE(26 * MHZ, 455000000U,  105, 3, 1),
++};
++
++static const struct samsung_pll_clock cpucl0_pll_clks[] __initconst = {
++	PLL(pll_1051x, CLK_FOUT_CPUCL0_PLL, "fout_cpucl0_pll", "oscclk",
++	    PLL_LOCKTIME_PLL_CPUCL0, PLL_CON0_PLL_CPUCL0, cpucl0_pll_rates),
++};
++
++static const struct samsung_mux_clock cpucl0_mux_clks[] __initconst = {
++	MUX_F(CLK_MOUT_PLL_CPUCL0, "mout_pll_cpucl0", mout_pll_cpucl0_p,
++	      PLL_CON0_PLL_CPUCL0, 4, 1,
++	      CLK_SET_RATE_PARENT | CLK_RECALC_NEW_RATES, 0),
++	MUX_F(CLK_MOUT_CPUCL0_SWITCH_USER, "mout_cpucl0_switch_user",
++	      mout_cpucl0_switch_user_p,
++	      PLL_CON0_MUX_CLKCMU_CPUCL0_SWITCH_USER, 4, 1,
++	      CLK_SET_RATE_PARENT, 0),
++	MUX_F(CLK_MOUT_CPUCL0_PLL, "mout_cpucl0_pll", mout_cpucl0_pll_p,
++	      CLK_CON_MUX_MUX_CLK_CPUCL0_PLL, 0, 1, CLK_SET_RATE_PARENT, 0),
++};
++
++static const struct samsung_div_clock cpucl0_div_clks[] __initconst = {
++	DIV_F(CLK_DOUT_CPUCL0_CPU, "dout_cpucl0_cpu", "mout_cpucl0_pll",
++	      CLK_CON_DIV_DIV_CLK_CPUCL0_CPU, 0, 12,
++	      CLK_GET_RATE_NOCACHE, CLK_DIVIDER_READ_ONLY),
++	DIV_F(CLK_DOUT_CPUCL0_CMUREF, "dout_cpucl0_cmuref", "dout_cpucl0_cpu",
++	      CLK_CON_DIV_DIV_CLK_CPUCL0_CMUREF, 0, 3,
++	      CLK_GET_RATE_NOCACHE, CLK_DIVIDER_READ_ONLY),
++	DIV_F(CLK_DOUT_CPUCL0_PCLK, "dout_cpucl0_pclk", "dout_cpucl0_cpu",
++	      CLK_CON_DIV_DIV_CLK_CPUCL0_PCLK, 0, 4,
++	      CLK_GET_RATE_NOCACHE, CLK_DIVIDER_READ_ONLY),
++	DIV_F(CLK_DOUT_CPUCL0_PCLKDBG, "dout_cpucl0_pclkdbg", "dout_cpucl0_cpu",
++	      CLK_CON_DIV_DIV_CLK_CPUCL0_PCLKDBG, 0, 4,
++	      CLK_GET_RATE_NOCACHE, CLK_DIVIDER_READ_ONLY),
++
++	/* EMBEDDED_CMU_CPUCL0 */
++	DIV_F(CLK_DOUT_CLUSTER0_ACLK, "dout_cluster0_aclk", "gout_cluster0_cpu",
++	      CLK_CON_DIV_DIV_CLK_CLUSTER0_ACLK, 0, 4,
++	      CLK_GET_RATE_NOCACHE, CLK_DIVIDER_READ_ONLY),
++	DIV_F(CLK_DOUT_CLUSTER0_ATCLK, "dout_cluster0_atclk",
++	      "gout_cluster0_cpu", CLK_CON_DIV_DIV_CLK_CLUSTER0_ATCLK, 0, 4,
++	      CLK_GET_RATE_NOCACHE, CLK_DIVIDER_READ_ONLY),
++};
++
++static const struct samsung_gate_clock cpucl0_gate_clks[] __initconst = {
++	GATE(CLK_GOUT_CPUCL0_CMU_CPUCL0_PCLK, "gout_cpucl0_cmu_cpucl0_pclk",
++	     "dout_cpucl0_pclk",
++	     CLK_CON_GAT_CLK_BLK_CPUCL0_UID_CPUCL0_CMU_CPUCL0_IPCLKPORT_PCLK,
++	     21, CLK_IGNORE_UNUSED, 0),
++
++	/* EMBEDDED_CMU_CPUCL0 */
++	GATE(CLK_GOUT_CLUSTER0_CPU, "gout_cluster0_cpu", "dout_cpucl0_cpu",
++	     CLK_CON_GAT_GATE_CLK_CPUCL0_CPU, 21, CLK_IGNORE_UNUSED, 0),
++};
++
++/*
++ * No divider configuration data is needed: Exynos8895 cluster bus clock
++ * divider ratios are frequency-independent, so only the PLL parent switch
++ * is performed during the rate change.
++ */
++static const struct exynos_cpuclk_cfg_data exynos8895_cluster_clk_d[] __initconst
++= {
++	{ 0 }
++};
++
++static const struct samsung_cpu_clock cpucl0_cpu_clks[] __initconst = {
++	CPU_CLK(CLK_CLUSTER0_CLK, "cluster0_clk", CLK_MOUT_PLL_CPUCL0,
++		CLK_MOUT_CPUCL0_SWITCH_USER, 0, 0x0, CPUCLK_LAYOUT_E8895_CL0,
++		exynos8895_cluster_clk_d),
++};
++
++static const struct samsung_cmu_info cpucl0_cmu_info __initconst = {
++	.pll_clks		= cpucl0_pll_clks,
++	.nr_pll_clks		= ARRAY_SIZE(cpucl0_pll_clks),
++	.mux_clks		= cpucl0_mux_clks,
++	.nr_mux_clks		= ARRAY_SIZE(cpucl0_mux_clks),
++	.div_clks		= cpucl0_div_clks,
++	.nr_div_clks		= ARRAY_SIZE(cpucl0_div_clks),
++	.gate_clks		= cpucl0_gate_clks,
++	.nr_gate_clks		= ARRAY_SIZE(cpucl0_gate_clks),
++	.cpu_clks		= cpucl0_cpu_clks,
++	.nr_cpu_clks		= ARRAY_SIZE(cpucl0_cpu_clks),
++	.nr_clk_ids		= CLKS_NR_CPUCL0,
++	.clk_regs		= cpucl0_clk_regs,
++	.nr_clk_regs		= ARRAY_SIZE(cpucl0_clk_regs),
++	.clk_name		= "dout_cmu_cpucl0_switch",
++	.manual_plls		= true,
++};
++
++static void __init exynos8895_cmu_cpucl0_init(struct device_node *np)
++{
++	struct clk *pll;
++
++	exynos_arm64_register_cmu(NULL, np, &cpucl0_cmu_info);
++
++	/*
++	 * The bootloader might be running the cluster from the CMU_TOP
++	 * switch clock with the cluster PLL disabled. Make sure the PLL is
++	 * enabled and locked, so that switching the CPU back to the PLL
++	 * output after a rate change is always safe.
++	 */
++	pll = clk_get(NULL, "fout_cpucl0_pll");
++	if (!IS_ERR(pll)) {
++		if (clk_prepare_enable(pll))
++			pr_err("%s: could not enable fout_cpucl0_pll\n",
++			       __func__);
++		clk_put(pll);
++	}
++}
++
++/* Register CMU_CPUCL0 early, as CPU clocks should be available ASAP */
++CLK_OF_DECLARE(exynos8895_cmu_cpucl0, "samsung,exynos8895-cmu-cpucl0",
++	       exynos8895_cmu_cpucl0_init);
++
++/* ---- CMU_CPUCL1 ---------------------------------------------------------- */
++
++/* Register Offset definitions for CMU_CPUCL1 (0x16900000) */
++#define PLL_LOCKTIME_PLL_CPUCL1				0x0000
++#define PLL_CON0_MUX_CLKCMU_CPUCL1_SWITCH_USER		0x0100
++#define PLL_CON0_PLL_CPUCL1				0x0120
++#define CLK_CON_MUX_MUX_CLK_CPUCL1_PLL			0x1000
++#define CLK_CON_DIV_DIV_CLK_CLUSTER1_ACLK		0x1800
++#define CLK_CON_DIV_DIV_CLK_CLUSTER1_ATCLK		0x1804
++#define CLK_CON_DIV_DIV_CLK_CLUSTER1_CNTCLK		0x1808
++#define CLK_CON_DIV_DIV_CLK_CLUSTER1_PCLKDBG		0x180c
++#define CLK_CON_DIV_DIV_CLK_CPUCL1_CMUREF		0x1810
++#define CLK_CON_DIV_DIV_CLK_CPUCL1_CPU			0x1814
++#define CLK_CON_DIV_DIV_CLK_CPUCL1_PCLK			0x1818
++#define CLK_CON_GAT_CLK_BLK_CPUCL1_UID_CPUCL1_CMU_CPUCL1_IPCLKPORT_PCLK	0x2000
++#define CLK_CON_GAT_GATE_CLK_CPUCL1_CPU			0x2018
++
++static const unsigned long cpucl1_clk_regs[] __initconst = {
++	PLL_LOCKTIME_PLL_CPUCL1,
++	PLL_CON0_MUX_CLKCMU_CPUCL1_SWITCH_USER,
++	PLL_CON0_PLL_CPUCL1,
++	CLK_CON_MUX_MUX_CLK_CPUCL1_PLL,
++	CLK_CON_DIV_DIV_CLK_CLUSTER1_ACLK,
++	CLK_CON_DIV_DIV_CLK_CLUSTER1_ATCLK,
++	CLK_CON_DIV_DIV_CLK_CLUSTER1_CNTCLK,
++	CLK_CON_DIV_DIV_CLK_CLUSTER1_PCLKDBG,
++	CLK_CON_DIV_DIV_CLK_CPUCL1_CMUREF,
++	CLK_CON_DIV_DIV_CLK_CPUCL1_CPU,
++	CLK_CON_DIV_DIV_CLK_CPUCL1_PCLK,
++	CLK_CON_GAT_CLK_BLK_CPUCL1_UID_CPUCL1_CMU_CPUCL1_IPCLKPORT_PCLK,
++	CLK_CON_GAT_GATE_CLK_CPUCL1_CPU,
++};
++
++/* List of parent clocks for Muxes in CMU_CPUCL1 */
++PNAME(mout_pll_cpucl1_p)		= { "oscclk", "fout_cpucl1_pll" };
++PNAME(mout_cpucl1_switch_user_p)	= { "oscclk", "dout_cmu_cpucl1_switch" };
++PNAME(mout_cpucl1_pll_p)		= { "mout_pll_cpucl1",
++					    "mout_cpucl1_switch_user" };
++
++/*
++ * PLL rate table for the M2 cluster PLL. Same rules as for the A53
++ * cluster, see cpucl0_pll_rates. The 1066 MHz entry uses S = 1 (M = 246)
++ * instead of the minimal-S solution (M = 123, S = 0) to keep the VCO
++ * inside the 1200..2400 MHz range documented for the 1051X PLL.
++ */
++static const struct samsung_pll_rate_table cpucl1_pll_rates[] __initconst = {
++	PLL_35XX_RATE(26 * MHZ, 2808000000U, 324, 3, 0),
++	PLL_35XX_RATE(26 * MHZ, 2704000000U, 312, 3, 0),
++	PLL_35XX_RATE(26 * MHZ, 2652000000U, 306, 3, 0),
++	PLL_35XX_RATE(26 * MHZ, 2574000000U, 297, 3, 0),
++	PLL_35XX_RATE(26 * MHZ, 2496000000U, 288, 3, 0),
++	PLL_35XX_RATE(26 * MHZ, 2314000000U, 267, 3, 0),
++	PLL_35XX_RATE(26 * MHZ, 2158000000U, 249, 3, 0),
++	PLL_35XX_RATE(26 * MHZ, 2002000000U, 231, 3, 0),
++	PLL_35XX_RATE(26 * MHZ, 1937000000U, 447, 3, 1),
++	PLL_35XX_RATE(26 * MHZ, 1807000000U, 417, 3, 1),
++	PLL_35XX_RATE(26 * MHZ, 1703000000U, 393, 3, 1),
++	PLL_35XX_RATE(26 * MHZ, 1469000000U, 339, 3, 1),
++	PLL_35XX_RATE(26 * MHZ, 1261000000U, 291, 3, 1),
++	PLL_35XX_RATE(26 * MHZ, 1170000000U, 135, 3, 0),
++	PLL_35XX_RATE(26 * MHZ, 1066000000U, 246, 3, 1),
++	PLL_35XX_RATE(26 * MHZ, 962000000U,  111, 3, 0),
++	PLL_35XX_RATE(26 * MHZ, 858000000U,  99,  3, 0),
++	PLL_35XX_RATE(26 * MHZ, 741000000U,  171, 3, 1),
++};
++
++static const struct samsung_pll_clock cpucl1_pll_clks[] __initconst = {
++	PLL(pll_1051x, CLK_FOUT_CPUCL1_PLL, "fout_cpucl1_pll", "oscclk",
++	    PLL_LOCKTIME_PLL_CPUCL1, PLL_CON0_PLL_CPUCL1, cpucl1_pll_rates),
++};
++
++static const struct samsung_mux_clock cpucl1_mux_clks[] __initconst = {
++	MUX_F(CLK_MOUT_PLL_CPUCL1, "mout_pll_cpucl1", mout_pll_cpucl1_p,
++	      PLL_CON0_PLL_CPUCL1, 4, 1,
++	      CLK_SET_RATE_PARENT | CLK_RECALC_NEW_RATES, 0),
++	MUX_F(CLK_MOUT_CPUCL1_SWITCH_USER, "mout_cpucl1_switch_user",
++	      mout_cpucl1_switch_user_p,
++	      PLL_CON0_MUX_CLKCMU_CPUCL1_SWITCH_USER, 4, 1,
++	      CLK_SET_RATE_PARENT, 0),
++	MUX_F(CLK_MOUT_CPUCL1_PLL, "mout_cpucl1_pll", mout_cpucl1_pll_p,
++	      CLK_CON_MUX_MUX_CLK_CPUCL1_PLL, 0, 1, CLK_SET_RATE_PARENT, 0),
++};
++
++static const struct samsung_div_clock cpucl1_div_clks[] __initconst = {
++	DIV_F(CLK_DOUT_CPUCL1_CPU, "dout_cpucl1_cpu", "mout_cpucl1_pll",
++	      CLK_CON_DIV_DIV_CLK_CPUCL1_CPU, 0, 12,
++	      CLK_GET_RATE_NOCACHE, CLK_DIVIDER_READ_ONLY),
++	DIV_F(CLK_DOUT_CPUCL1_CMUREF, "dout_cpucl1_cmuref", "dout_cpucl1_cpu",
++	      CLK_CON_DIV_DIV_CLK_CPUCL1_CMUREF, 0, 3,
++	      CLK_GET_RATE_NOCACHE, CLK_DIVIDER_READ_ONLY),
++	DIV_F(CLK_DOUT_CPUCL1_PCLK, "dout_cpucl1_pclk", "dout_cpucl1_cpu",
++	      CLK_CON_DIV_DIV_CLK_CPUCL1_PCLK, 0, 4,
++	      CLK_GET_RATE_NOCACHE, CLK_DIVIDER_READ_ONLY),
++
++	/* EMBEDDED_CMU_CPUCL1 */
++	DIV_F(CLK_DOUT_CLUSTER1_ACLK, "dout_cluster1_aclk", "gout_cluster1_cpu",
++	      CLK_CON_DIV_DIV_CLK_CLUSTER1_ACLK, 0, 4,
++	      CLK_GET_RATE_NOCACHE, CLK_DIVIDER_READ_ONLY),
++	DIV_F(CLK_DOUT_CLUSTER1_ATCLK, "dout_cluster1_atclk",
++	      "gout_cluster1_cpu", CLK_CON_DIV_DIV_CLK_CLUSTER1_ATCLK, 0, 4,
++	      CLK_GET_RATE_NOCACHE, CLK_DIVIDER_READ_ONLY),
++	DIV_F(CLK_DOUT_CLUSTER1_CNTCLK, "dout_cluster1_cntclk",
++	      "gout_cluster1_cpu", CLK_CON_DIV_DIV_CLK_CLUSTER1_CNTCLK, 0, 4,
++	      CLK_GET_RATE_NOCACHE, CLK_DIVIDER_READ_ONLY),
++	DIV_F(CLK_DOUT_CLUSTER1_PCLKDBG, "dout_cluster1_pclkdbg",
++	      "gout_cluster1_cpu", CLK_CON_DIV_DIV_CLK_CLUSTER1_PCLKDBG, 0, 4,
++	      CLK_GET_RATE_NOCACHE, CLK_DIVIDER_READ_ONLY),
++};
++
++static const struct samsung_gate_clock cpucl1_gate_clks[] __initconst = {
++	GATE(CLK_GOUT_CPUCL1_CMU_CPUCL1_PCLK, "gout_cpucl1_cmu_cpucl1_pclk",
++	     "dout_cpucl1_pclk",
++	     CLK_CON_GAT_CLK_BLK_CPUCL1_UID_CPUCL1_CMU_CPUCL1_IPCLKPORT_PCLK,
++	     21, CLK_IGNORE_UNUSED, 0),
++
++	/* EMBEDDED_CMU_CPUCL1 */
++	GATE(CLK_GOUT_CLUSTER1_CPU, "gout_cluster1_cpu", "dout_cpucl1_cpu",
++	     CLK_CON_GAT_GATE_CLK_CPUCL1_CPU, 21, CLK_IGNORE_UNUSED, 0),
++};
++
++static const struct samsung_cpu_clock cpucl1_cpu_clks[] __initconst = {
++	CPU_CLK(CLK_CLUSTER1_CLK, "cluster1_clk", CLK_MOUT_PLL_CPUCL1,
++		CLK_MOUT_CPUCL1_SWITCH_USER, 0, 0x0, CPUCLK_LAYOUT_E8895_CL1,
++		exynos8895_cluster_clk_d),
++};
++
++static const struct samsung_cmu_info cpucl1_cmu_info __initconst = {
++	.pll_clks		= cpucl1_pll_clks,
++	.nr_pll_clks		= ARRAY_SIZE(cpucl1_pll_clks),
++	.mux_clks		= cpucl1_mux_clks,
++	.nr_mux_clks		= ARRAY_SIZE(cpucl1_mux_clks),
++	.div_clks		= cpucl1_div_clks,
++	.nr_div_clks		= ARRAY_SIZE(cpucl1_div_clks),
++	.gate_clks		= cpucl1_gate_clks,
++	.nr_gate_clks		= ARRAY_SIZE(cpucl1_gate_clks),
++	.cpu_clks		= cpucl1_cpu_clks,
++	.nr_cpu_clks		= ARRAY_SIZE(cpucl1_cpu_clks),
++	.nr_clk_ids		= CLKS_NR_CPUCL1,
++	.clk_regs		= cpucl1_clk_regs,
++	.nr_clk_regs		= ARRAY_SIZE(cpucl1_clk_regs),
++	.clk_name		= "dout_cmu_cpucl1_switch",
++	.manual_plls		= true,
++};
++
++static void __init exynos8895_cmu_cpucl1_init(struct device_node *np)
++{
++	struct clk *pll;
++
++	exynos_arm64_register_cmu(NULL, np, &cpucl1_cmu_info);
++
++	/*
++	 * The bootloader might be running the cluster from the CMU_TOP
++	 * switch clock with the cluster PLL disabled. Make sure the PLL is
++	 * enabled and locked, so that switching the CPU back to the PLL
++	 * output after a rate change is always safe.
++	 */
++	pll = clk_get(NULL, "fout_cpucl1_pll");
++	if (!IS_ERR(pll)) {
++		if (clk_prepare_enable(pll))
++			pr_err("%s: could not enable fout_cpucl1_pll\n",
++			       __func__);
++		clk_put(pll);
++	}
++}
++
++/* Register CMU_CPUCL1 early, as CPU clocks should be available ASAP */
++CLK_OF_DECLARE(exynos8895_cmu_cpucl1, "samsung,exynos8895-cmu-cpucl1",
++	       exynos8895_cmu_cpucl1_init);
++
++/* ---- CMU_G3D ------------------------------------------------------------- */
++
++/*
++ * The Mali-G71 lives in the G3D block behind an embedded local power
++ * switch (PMU EMBEDDED_G3D_CONFIGURATION/STATUS).  There is no genpd
++ * for this domain in mainline, so the bootstrap initcall below powers
++ * the domain on and brings up the clocks, step by step with readback
++ * verification, before panfrost probes.  The gpu node does not
++ * declare a power-domain.
++ */
++#define EXYNOS8895_PMU_EMBEDDED_G3D_CONFIG	0x40E0
++#define EXYNOS8895_PMU_EMBEDDED_G3D_STATUS	0x40E4
++
++/* Register Offset definitions for CMU_G3D (0x13800000) */
++#define PLL_LOCKTIME_PLL_G3D				0x0000
++#define PLL_CON0_MUX_CLKCMU_G3D_SWITCH_USER		0x0100
++#define PLL_CON0_PLL_G3D				0x0120
++#define CLK_CON_MUX_MUX_CLK_G3D_BUSD			0x1000
++#define CLK_CON_DIV_DIV_CLK_G3D_BUSP			0x1804
++#define CLK_CON_GAT_CLK_BLK_G3D_UID_G3D_CMU_G3D_IPCLKPORT_PCLK	0x2004
++#define CLK_CON_GAT_GATE_CLK_G3D_AGPU			0x201c
++
++static const unsigned long g3d_clk_regs[] __initconst = {
++	PLL_LOCKTIME_PLL_G3D,
++	PLL_CON0_MUX_CLKCMU_G3D_SWITCH_USER,
++	PLL_CON0_PLL_G3D,
++	CLK_CON_MUX_MUX_CLK_G3D_BUSD,
++	CLK_CON_DIV_DIV_CLK_G3D_BUSP,
++	CLK_CON_GAT_CLK_BLK_G3D_UID_G3D_CMU_G3D_IPCLKPORT_PCLK,
++	CLK_CON_GAT_GATE_CLK_G3D_AGPU,
++};
++
++/* List of parent clocks for Muxes in CMU_G3D */
++PNAME(mout_g3d_switch_user_p)	= { "oscclk", "dout_cmu_g3d_switch" };
++PNAME(mout_g3d_busd_p)		= { "fout_g3d_pll", "mout_g3d_switch_user" };
++
++/*
++ * PLL rate table for the G3D PLL, taken from the ECT PLL_G3D table
++ * (26 MHz * M / (P * 2^S)).  The full DVFS ladder is here so the rates
++ * are available once runtime switching is validated; the dts OPP table
++ * is deliberately limited to the stock boot rate for now.
++ */
++static const struct samsung_pll_rate_table g3d_pll_rates[] __initconst = {
++	PLL_35XX_RATE(26 * MHZ, 838500000U, 129, 4, 0),
++	PLL_35XX_RATE(26 * MHZ, 764400000U, 147, 5, 0),
++	PLL_35XX_RATE(26 * MHZ, 682500000U, 105, 4, 0),
++	PLL_35XX_RATE(26 * MHZ, 572000000U, 176, 4, 1),
++	PLL_35XX_RATE(26 * MHZ, 546000000U, 168, 4, 1),
++	PLL_35XX_RATE(26 * MHZ, 455000000U, 140, 4, 1),
++	PLL_35XX_RATE(26 * MHZ, 384800000U, 148, 5, 1),
++	PLL_35XX_RATE(26 * MHZ, 338000000U, 104, 4, 1),
++	PLL_35XX_RATE(26 * MHZ, 260000000U, 160, 4, 2),
++};
++
++static const struct samsung_pll_clock g3d_pll_clks[] __initconst = {
++	PLL(pll_1052x, CLK_FOUT_G3D_PLL, "fout_g3d_pll", "oscclk",
++	    PLL_LOCKTIME_PLL_G3D, PLL_CON0_PLL_G3D, g3d_pll_rates),
++};
++
++static const struct samsung_mux_clock g3d_mux_clks[] __initconst = {
++	MUX_F(CLK_MOUT_G3D_SWITCH_USER, "mout_g3d_switch_user",
++	      mout_g3d_switch_user_p,
++	      PLL_CON0_MUX_CLKCMU_G3D_SWITCH_USER, 4, 1,
++	      CLK_SET_RATE_PARENT, 0),
++	MUX_F(CLK_MOUT_G3D_BUSD, "mout_g3d_busd", mout_g3d_busd_p,
++	      CLK_CON_MUX_MUX_CLK_G3D_BUSD, 0, 1, CLK_SET_RATE_PARENT, 0),
++};
++
++static const struct samsung_div_clock g3d_div_clks[] __initconst = {
++	DIV(CLK_DOUT_G3D_BUSP, "dout_g3d_busp", "mout_g3d_busd",
++	    CLK_CON_DIV_DIV_CLK_G3D_BUSP, 0, 4),
++};
++
++static const struct samsung_gate_clock g3d_gate_clks[] __initconst = {
++	GATE(CLK_GOUT_G3D_CMU_PCLK, "gout_g3d_cmu_pclk", "dout_g3d_busp",
++	     CLK_CON_GAT_CLK_BLK_G3D_UID_G3D_CMU_G3D_IPCLKPORT_PCLK,
++	     21, CLK_IGNORE_UNUSED, 0),
++	/* The G71 core clock.  Left to the bootloader's state would be a
++	 * lottery, so it is explicitly enabled in the CMU init below.
++	 */
++	GATE(CLK_GOUT_G3D_AGPU, "gout_g3d_agpu", "mout_g3d_busd",
++	     CLK_CON_GAT_GATE_CLK_G3D_AGPU, 21, 0, 0),
++};
++
++static const struct samsung_cmu_info g3d_cmu_info __initconst = {
++	.pll_clks		= g3d_pll_clks,
++	.nr_pll_clks		= ARRAY_SIZE(g3d_pll_clks),
++	.mux_clks		= g3d_mux_clks,
++	.nr_mux_clks		= ARRAY_SIZE(g3d_mux_clks),
++	.div_clks		= g3d_div_clks,
++	.nr_div_clks		= ARRAY_SIZE(g3d_div_clks),
++	.gate_clks		= g3d_gate_clks,
++	.nr_gate_clks		= ARRAY_SIZE(g3d_gate_clks),
++	.nr_clk_ids		= CLKS_NR_G3D,
++	.clk_regs		= g3d_clk_regs,
++	.nr_clk_regs		= ARRAY_SIZE(g3d_clk_regs),
++	.clk_name		= "switch",
++};
++
++static void __init exynos8895_cmu_g3d_init(struct device_node *np)
++{
++	/*
++	 * Clock registration only.  The hardware bootstrap (embedded
++	 * power domain, PLL, gates) cannot run here: at of_clk_init time
++	 * the G3D block may not be clocked yet (its PCLK derives from
++	 * the very mux/PLL being set up), and writes get dropped.  It is
++	 * done by the g3d bootstrap initcall below, which runs after DT
++	 * population with the clk framework fully up, and before
++	 * panfrost probes.
++	 */
++	exynos_arm64_register_cmu(NULL, np, &g3d_cmu_info);
++}
++
++CLK_OF_DECLARE(exynos8895_cmu_g3d, "samsung,exynos8895-cmu-g3d",
++	       exynos8895_cmu_g3d_init);
++
++/*
++ * G3D bootstrap - bisection harness.
++ *
++ * Round-4/5 lesson: with the register sequence executed at boot, some
++ * write poisoned clocks of unrelated subsystems (speedy, serial,
++ * pcie-phy) and wedged the system.  To find the offending step without
++ * spending a flash cycle per guess, nothing runs at boot anymore:
++ * this initcall only maps the CMU_G3D registers and creates a debugfs
++ * control file.  Each step is executed manually ("echo N > g3d_step"),
++ * one at a time, with every sub-write read back and logged, so the
++ * tester can check the rest of the system (serial/BT, speedy, pcie)
++ * after each step and pinpoint the poison.
++ *
++ * Steps:
++ *   1 - pmucal g3d_on pre-writes (0x148, 0x140, 0x100)
++ *   2 - enable the cmu_g3d "switch" clock (CMU_TOP chain)
++ *   3 - busd mux -> switch_user (alternate parent)
++ *   4 - PLL locktime + CON0 MPS|ENABLE, bounded STABLE poll
++ *   5 - busd mux -> fout_g3d_pll
++ *   6 - ungate AGPU (0x201c) + CMU PCLK (0x2004)
++ *   9 - steps 1-6 in order
++ * Reading the file dumps the raw registers.
++ */
++#include <linux/debugfs.h>
++#include <linux/uaccess.h>
++
++static void __iomem *g3d_base;
++static struct device_node *g3d_np;
++static struct clk *g3d_switch_clk;
++
++static int g3d_reg_update(void __iomem *base, u32 off, u32 mask, u32 val,
++			  const char *name)
++{
++	u32 readback;
++	int t;
++
++	for (t = 0; t < 3; t++) {
++		readback = (readl(base + off) & ~mask) | (val & mask);
++		writel(readback, base + off);
++		readback = readl(base + off);
++		if ((readback & mask) == (val & mask)) {
++			pr_info("g3d: %s reg[0x%03x] = 0x%x (ok)\n",
++				name, off, readback);
++			return 0;
++		}
++		pr_info("g3d: %s reg[0x%03x] write retry %d (readback 0x%x)\n",
++			name, off, t + 1, readback);
++		udelay(10);
++	}
++	pr_err("g3d: %s reg[0x%03x] write NOT sticking (readback 0x%x)\n",
++	       name, off, readback);
++	return -EIO;
++}
++
++static int g3d_step_pre(void)
++{
++	g3d_reg_update(g3d_base, 0x148, 0xffffffff, 0x30000003,
++		       "pmucal PLL_CON2 (0x148)");
++	g3d_reg_update(g3d_base, 0x140, BIT(4), BIT(4),
++		       "pmucal PLL_CON0 enable (0x140)");
++	g3d_reg_update(g3d_base, PLL_CON0_MUX_CLKCMU_G3D_SWITCH_USER,
++		       BIT(4), BIT(4), "switch_user mux select (0x100)");
++	return 0;
++}
++
++static int g3d_step_switch(void)
++{
++	int ret;
++
++	if (!g3d_np) {
++		pr_err("g3d: cmu_g3d node not saved\n");
++		return -ENODEV;
++	}
++	if (!g3d_switch_clk) {
++		g3d_switch_clk = of_clk_get_by_name(g3d_np, "switch");
++		if (IS_ERR(g3d_switch_clk)) {
++			pr_warn("g3d: switch clock lookup failed (%ld)\n",
++				PTR_ERR(g3d_switch_clk));
++			g3d_switch_clk = NULL;
++			return -ENOENT;
++		}
++	}
++	ret = clk_prepare_enable(g3d_switch_clk);
++	pr_info("g3d: switch clock %s, rate %lu\n",
++		ret ? "FAILED to enable" : "enabled",
++		clk_get_rate(g3d_switch_clk));
++	return ret;
++}
++
++static struct clk *g3d_busd_clk;
++
++static int g3d_step_mux_ccf(unsigned int idx, const char *what)
++{
++	struct device_node *gpu_np;
++	struct clk_hw *hw, *parent;
++	int i, ret;
++
++	/*
++	 * Switch the busd parent THROUGH the clock framework: a raw
++	 * register write leaves CCF believing the parent is still the
++	 * (off) PLL, and panfrost's clk_set_rate() then propagates to
++	 * the PLL instead of the TOP switch.  The samsung mux's
++	 * set_parent performs the hardware write; we just verify it.
++	 */
++	if (!g3d_busd_clk) {
++		gpu_np = of_find_compatible_node(NULL, NULL, "arm,mali-bifrost");
++		if (!gpu_np)
++			return -ENODEV;
++		g3d_busd_clk = of_clk_get(gpu_np, 0);
++		of_node_put(gpu_np);
++		if (IS_ERR(g3d_busd_clk)) {
++			pr_warn("g3d: busd clock lookup failed (%ld)\n",
++				PTR_ERR(g3d_busd_clk));
++			g3d_busd_clk = NULL;
++			return -ENOENT;
++		}
++	}
++	hw = __clk_get_hw(g3d_busd_clk);
++	parent = clk_hw_get_parent_by_index(hw, idx);
++	if (!parent)
++		return -ENOENT;
++	ret = clk_hw_set_parent(hw, parent);
++	if (ret)
++		pr_err("g3d: CCF parent switch to %s failed (%d)\n",
++		       clk_hw_get_name(parent), ret);
++	else
++		pr_info("g3d: CCF parent -> %s\n", clk_hw_get_name(parent));
++	for (i = 0; i < 10000; i++) {
++		if (!(readl(g3d_base + CLK_CON_MUX_MUX_CLK_G3D_BUSD) & BIT(16)))
++			break;
++		udelay(10);
++	}
++	pr_info("g3d: busd mux %s reg 0x%x\n", what,
++		readl(g3d_base + CLK_CON_MUX_MUX_CLK_G3D_BUSD));
++	return ret;
++}
++
++static int g3d_step_mux_alt(void)
++{
++	return g3d_step_mux_ccf(1, "-> switch_user");
++}
++
++static int g3d_step_pll(void)
++{
++	u32 con0;
++	bool on = false;
++	int i, t;
++
++	if (!readl(g3d_base + PLL_LOCKTIME_PLL_G3D))
++		g3d_reg_update(g3d_base, PLL_LOCKTIME_PLL_G3D, 0xffffffff,
++			       0x258, "locktime");
++
++	for (t = 0; t < 3 && !on; t++) {
++		con0 = readl(g3d_base + PLL_CON0_PLL_G3D);
++		pr_info("g3d: PLL CON0 = 0x%x\n", con0);
++		if (con0 & BIT(29)) {
++			on = true;
++			break;
++		}
++		con0 &= ~((0x3ff << 16) | (0x3f << 8) | 0x7);
++		con0 |= (168 << 16) | (4 << 8) | 1 | BIT(31);
++		writel(con0, g3d_base + PLL_CON0_PLL_G3D);
++		for (i = 0; i < 10000; i++) {
++			con0 = readl(g3d_base + PLL_CON0_PLL_G3D);
++			if (con0 & BIT(29)) {
++				on = true;
++				break;
++			}
++			udelay(10);
++		}
++		pr_info("g3d: PLL lock attempt %d %s (CON0 0x%x)\n",
++			t + 1, on ? "ok" : "FAILED", con0);
++	}
++	if (!on)
++		pr_err("g3d: PLL did not lock\n");
++	return on ? 0 : -ETIMEDOUT;
++}
++
++static int g3d_step_mux_pll(void)
++{
++	return g3d_step_mux_ccf(0, "-> g3d_pll");
++}
++
++static int g3d_step_gates(void)
++{
++	g3d_reg_update(g3d_base, CLK_CON_GAT_GATE_CLK_G3D_AGPU,
++		       BIT(21) | BIT(20), BIT(21) | BIT(20), "AGPU gate");
++	g3d_reg_update(g3d_base,
++		       CLK_CON_GAT_CLK_BLK_G3D_UID_G3D_CMU_G3D_IPCLKPORT_PCLK,
++		       BIT(21) | BIT(20), BIT(21) | BIT(20), "CMU PCLK gate");
++	return 0;
++}
++
++static ssize_t g3d_step_read(struct file *file, char __user *ubuf,
++			     size_t count, loff_t *ppos)
++{
++	char buf[512];
++	int len;
++
++	if (!g3d_base)
++		return simple_read_from_buffer(ubuf, count, ppos,
++					       "g3d: not mapped\n", 17);
++
++	len = scnprintf(buf, sizeof(buf),
++		"g3d regs: locktime[0x000]=0x%x pre[0x100]=0x%x [0x140]=0x%x [0x148]=0x%x pll[0x120]=0x%x con1[0x124]=0x%x mux[0x1000]=0x%x cmu_pclk[0x2004]=0x%x agpu[0x201c]=0x%x\n",
++		readl(g3d_base + PLL_LOCKTIME_PLL_G3D),
++		readl(g3d_base + PLL_CON0_MUX_CLKCMU_G3D_SWITCH_USER),
++		readl(g3d_base + 0x140),
++		readl(g3d_base + 0x148),
++		readl(g3d_base + PLL_CON0_PLL_G3D),
++		readl(g3d_base + 0x124),
++		readl(g3d_base + CLK_CON_MUX_MUX_CLK_G3D_BUSD),
++		readl(g3d_base +
++		      CLK_CON_GAT_CLK_BLK_G3D_UID_G3D_CMU_G3D_IPCLKPORT_PCLK),
++		readl(g3d_base + CLK_CON_GAT_GATE_CLK_G3D_AGPU));
++
++	return simple_read_from_buffer(ubuf, count, ppos, buf, len);
++}
++
++static ssize_t g3d_step_write(struct file *file, const char __user *ubuf,
++			      size_t count, loff_t *ppos)
++{
++	char buf[8];
++	unsigned long step;
++	int (*fn)(void) = NULL;
++	int ret = 0;
++
++	if (!g3d_base || count >= sizeof(buf))
++		return -EINVAL;
++	if (copy_from_user(buf, ubuf, count))
++		return -EFAULT;
++	buf[count] = '\0';
++	if (kstrtoul(buf, 0, &step))
++		return -EINVAL;
++
++	pr_info("g3d: step %lu requested\n", step);
++	switch (step) {
++	case 1:
++		fn = g3d_step_pre;
++		break;
++	case 2:
++		fn = g3d_step_switch;
++		break;
++	case 3:
++		fn = g3d_step_mux_alt;
++		break;
++	case 4:
++		fn = g3d_step_pll;
++		break;
++	case 5:
++		fn = g3d_step_mux_pll;
++		break;
++	case 6:
++		fn = g3d_step_gates;
++		break;
++	case 9:
++		ret |= g3d_step_pre();
++		ret |= g3d_step_switch();
++		ret |= g3d_step_mux_alt();
++		ret |= g3d_step_pll();
++		ret |= g3d_step_mux_pll();
++		ret |= g3d_step_gates();
++		pr_info("g3d: full sequence done (%d)\n", ret);
++		return count;
++	default:
++		return -EINVAL;
++	}
++
++	ret = fn();
++	pr_info("g3d: step %lu done (%d)\n", step, ret);
++	return count;
++}
++
++static const struct file_operations g3d_step_fops = {
++	.read = g3d_step_read,
++	.write = g3d_step_write,
++	.owner = THIS_MODULE,
++};
++
++static int __init exynos8895_g3d_bootstrap_init(void)
++{
++	g3d_np = of_find_compatible_node(NULL, NULL,
++					 "samsung,exynos8895-cmu-g3d");
++	if (!g3d_np) {
++		pr_err("g3d: cmu_g3d node not found\n");
++		return 0;
++	}
++	g3d_base = of_iomap(g3d_np, 0);
++	if (!g3d_base) {
++		of_node_put(g3d_np);
++		g3d_np = NULL;
++		pr_err("g3d: cannot map CMU_G3D registers\n");
++		return 0;
++	}
++
++	debugfs_create_file("g3d_step", 0644, NULL, NULL, &g3d_step_fops);
++	pr_info("g3d: bootstrap idle (runtime-steppable via debugfs g3d_step)\n");
++	return 0;
++}
++device_initcall(exynos8895_g3d_bootstrap_init);
++
++/*
++ * Platform driver for the CMUs that probe as devices (FSYS0/1, PERIC0/1,
++ * BUSCO).  This block was accidentally dropped while restructuring the
++ * G3D bootstrap (boots v48-v51: none of these providers registered, so
++ * serial/speedy/pcie/mmc all lost their clocks); restored verbatim.
++ */
+ static int __init exynos8895_cmu_probe(struct platform_device *pdev)
+ {
+ 	const struct samsung_cmu_info *info;
+@@ -2783,6 +3587,9 @@ static const struct of_device_id exynos8895_cmu_of_match[] = {
+ 	}, {
+ 		.compatible = "samsung,exynos8895-cmu-peric1",
+ 		.data = &peric1_cmu_info,
++	}, {
++		.compatible = "samsung,exynos8895-cmu-busco",
++		.data = &busc_cmu_info,
+ 	},
+ 	{ }
+ };
+diff --git a/drivers/i2c/busses/Kconfig b/drivers/i2c/busses/Kconfig
+index e11d50750..407489c01 100644
+--- a/drivers/i2c/busses/Kconfig
++++ b/drivers/i2c/busses/Kconfig
+@@ -683,6 +683,17 @@ config I2C_EXYNOS5
+ 	  Exynos5433, Exynos7, Exynos850 and ExynosAutoV9.
+ 	  Choose Y here only if you build for such Samsung SoC.
+ 
++config I2C_SPEEDY
++	tristate "Exynos SPEEDY bus driver"
++	depends on OF
++	depends on ARCH_EXYNOS || COMPILE_TEST
++	help
++	  SPEEDY (Serial Protocol in an EffEctive Digital waY) is a Samsung
++	  proprietary serial bus, e.g. used in Exynos8895 to control the
++	  S2MPS17 PMIC.  This driver adapts the SPEEDY master controller to
++	  the Linux I2C core so that regular I2C client drivers can talk to
++	  the slaves behind it.
++
+ config I2C_GPIO
+ 	tristate "GPIO-based bitbanging I2C"
+ 	depends on GPIOLIB || COMPILE_TEST
+diff --git a/drivers/i2c/busses/Makefile b/drivers/i2c/busses/Makefile
+index 547123ab3..b296e60f6 100644
+--- a/drivers/i2c/busses/Makefile
++++ b/drivers/i2c/busses/Makefile
+@@ -65,6 +65,7 @@ obj-$(CONFIG_I2C_DIGICOLOR)	+= i2c-digicolor.o
+ obj-$(CONFIG_I2C_EG20T)		+= i2c-eg20t.o
+ obj-$(CONFIG_I2C_EMEV2)		+= i2c-emev2.o
+ obj-$(CONFIG_I2C_EXYNOS5)	+= i2c-exynos5.o
++obj-$(CONFIG_I2C_SPEEDY)	+= i2c-speedy.o
+ obj-$(CONFIG_I2C_GPIO)		+= i2c-gpio.o
+ obj-$(CONFIG_I2C_HIGHLANDER)	+= i2c-highlander.o
+ obj-$(CONFIG_I2C_HISI)		+= i2c-hisi.o
+diff --git a/drivers/i2c/busses/i2c-speedy.c b/drivers/i2c/busses/i2c-speedy.c
+new file mode 100644
+index 000000000..1dedba7fb
+--- /dev/null
++++ b/drivers/i2c/busses/i2c-speedy.c
+@@ -0,0 +1,453 @@
++// SPDX-License-Identifier: GPL-2.0
++/*
++ * Driver for the Samsung SPEEDY bus controller (Serial Protocol in an
++ * EffEctive Digital waY), found e.g. in the Exynos 8895.
++ *
++ * SPEEDY is a Samsung proprietary 1-wire serial bus.  A transaction is
++ * a single packet, programmed through the SPEEDY_CMD register:
++ *
++ *	CMD[18:15] = device (slave page, 4 bits)
++ *	CMD[14: 7] = register offset (8 bits)
++ *	CMD[   19] = access type (0 burst / 1 random, single byte)
++ *	CMD[   20] = direction (0 read / 1 write)
++ *
++ * The transfer length is programmed in SPEEDY_FIFO_CTRL (RX count in
++ * bits [4:0], TX count in bits [12:8]); the payload byte is pushed to
++ * SPEEDY_TX_DATA after the command, and a read result is pulled from
++ * SPEEDY_RX_DATA once SPEEDY_INT_STATUS bit 0 (TRANSFER_DONE) shows up.
++ * This register-level sequence follows the exynos-speedy host
++ * controller driver by Markuss Broks / Maksym Holovach (linux-arm-kernel,
++ * December 2024); the Exynos 8895 uses the same SPEEDY block as the
++ * Exynos 9810 that driver targets, hence the compatible
++ * "samsung,exynos-speedy" instead of the 9810-specific name.
++ *
++ * The I2C adapter fuses the regmap-style "write register offset, then
++ * read data" message pair into one SPEEDY transaction, taking the
++ * register offset from the first byte of the write message.  Only
++ * single-byte random transactions are used; larger regmap transfers are
++ * decomposed into per-byte transactions so the hardware sees exactly
++ * the sequence the reference driver proves.
++ *
++ * All waits are bounded by a hard iteration count plus a jiffies
++ * deadline.  The only recovery after a failure is a register dump and a
++ * controller reset; no register is ever written while a transaction is
++ * in flight beyond that, so a misbehaving slave costs time, never a
++ * hang.
++ *
++ * Copyright (C) 2015 Samsung Electronics Ltd.
++ *	Youngmin Nam <youngmin.nam@samsung.com>
++ * Copyright (C) 2024 Markuss Broks <markuss.broks@gmail.com>
++ * Copyright (C) 2024 Maksym Holovach <nergzd723@gmail.com>
++ * Copyright (C) 2026 Linux Exynos community
++ */
++
++#include <linux/atomic.h>
++#include <linux/clk.h>
++#include <linux/delay.h>
++#include <linux/err.h>
++#include <linux/i2c.h>
++#include <linux/io.h>
++#include <linux/jiffies.h>
++#include <linux/kernel.h>
++#include <linux/module.h>
++#include <linux/of.h>
++#include <linux/platform_device.h>
++#include <linux/regmap.h>
++#include <linux/slab.h>
++
++/* SPEEDY register map */
++#define SPEEDY_CTRL				0x000
++#define SPEEDY_FIFO_CTRL			0x004
++#define SPEEDY_CMD				0x008
++#define SPEEDY_INT_ENABLE			0x00C
++#define SPEEDY_INT_STATUS			0x010
++#define SPEEDY_FIFO_STATUS			0x030
++#define SPEEDY_TX_DATA				0x034
++#define SPEEDY_RX_DATA				0x038
++#define SPEEDY_CTRL_STATUS			0x104
++
++/* SPEEDY_CTRL bits */
++#define SPEEDY_ENABLE				(1 << 0)
++#define SPEEDY_REMOTE_RESET_REQ			(1 << 30)
++#define SPEEDY_SW_RST				(1 << 31)
++
++/* SPEEDY_FIFO_CTRL bits: transfer lengths (and FIFO reset) */
++#define SPEEDY_FIFO_RESET			(1 << 31)
++#define SPEEDY_RX_LENGTH(n)			(((n) & 0x1f) << 0)
++#define SPEEDY_TX_LENGTH(n)			(((n) & 0x1f) << 8)
++
++/* SPEEDY_CMD bits */
++#define SPEEDY_DEVICE(x)			(((x) & 0xf) << 15)
++#define SPEEDY_ADDRESS(x)			(((x) & 0xff) << 7)
++#define SPEEDY_ACCESS_RANDOM			(1 << 19)
++#define SPEEDY_DIRECTION_READ			(0 << 20)
++#define SPEEDY_DIRECTION_WRITE			(1 << 20)
++
++/* SPEEDY_INT_ENABLE / SPEEDY_INT_STATUS bits */
++#define SPEEDY_TRANSFER_DONE			(1 << 0)
++#define SPEEDY_TIMEOUT_CMD			(1 << 1)
++#define SPEEDY_TIMEOUT_STANDBY			(1 << 2)
++#define SPEEDY_TIMEOUT_DATA			(1 << 3)
++#define SPEEDY_FIFO_TX_ALMOST_EMPTY		(1 << 4)
++#define SPEEDY_FIFO_RX_ALMOST_FULL		(1 << 8)
++#define SPEEDY_RX_FIFO_INT_TRAILER		(1 << 9)
++#define SPEEDY_RX_MODEBIT_ERR			(1 << 16)
++#define SPEEDY_RX_GLITCH_ERR			(1 << 17)
++#define SPEEDY_RX_ENDBIT_ERR			(1 << 18)
++#define SPEEDY_TX_LINE_BUSY_ERR			(1 << 20)
++#define SPEEDY_TX_STOPBIT_ERR			(1 << 21)
++#define SPEEDY_REMOTE_RESET_REQ_EN		(1 << 31)
++
++/* Error bits that terminate a transfer as -EIO. */
++#define SPEEDY_INT_ERRORS		(SPEEDY_TIMEOUT_CMD |		\
++				 SPEEDY_TIMEOUT_STANDBY |	\
++				 SPEEDY_TIMEOUT_DATA |		\
++				 SPEEDY_RX_MODEBIT_ERR |	\
++				 SPEEDY_RX_GLITCH_ERR |		\
++				 SPEEDY_RX_ENDBIT_ERR |		\
++				 SPEEDY_TX_LINE_BUSY_ERR |	\
++				 SPEEDY_TX_STOPBIT_ERR)
++
++/* Bound every wait: 50 ms matches the reference driver's timeout. */
++#define SPEEDY_XFER_TIMEOUT_US	(50 * USEC_PER_MSEC)
++
++struct exynos_speedy {
++	struct i2c_adapter	adap;
++	void __iomem		*regs;
++	struct clk		*clk;
++	struct device		*dev;
++};
++
++static void speedy_int_clear(struct exynos_speedy *speedy)
++{
++	writel(0xFFFFFFFF, speedy->regs + SPEEDY_INT_STATUS);
++	udelay(10);
++}
++
++static void speedy_dump_registers(struct exynos_speedy *speedy)
++{
++	dev_err(speedy->dev,
++		"SPEEDY registers: CTRL 0x%08x FIFO_CTRL 0x%08x CMD 0x%08x INT_EN 0x%08x INT_STAT 0x%08x FIFO_STAT 0x%08x CTRL_STAT 0x%08x\n",
++		readl(speedy->regs + SPEEDY_CTRL),
++		readl(speedy->regs + SPEEDY_FIFO_CTRL),
++		readl(speedy->regs + SPEEDY_CMD),
++		readl(speedy->regs + SPEEDY_INT_ENABLE),
++		readl(speedy->regs + SPEEDY_INT_STATUS),
++		readl(speedy->regs + SPEEDY_FIFO_STATUS),
++		readl(speedy->regs + SPEEDY_CTRL_STATUS));
++}
++
++/*
++ * Reset the controller (called with no transaction in flight).  The
++ * reset bit is self-clearing on this IP; clear it by hand as well (and
++ * wait, bounded) so the driver works even on a revision where it is
++ * not.  SPEEDY_ENABLE does not survive the reset, set it again.
++ */
++static void speedy_swreset(struct exynos_speedy *speedy)
++{
++	unsigned long deadline = jiffies + usecs_to_jiffies(1000) + 1;
++	unsigned int iter = 0;
++
++	writel(readl(speedy->regs + SPEEDY_CTRL) | SPEEDY_SW_RST,
++	       speedy->regs + SPEEDY_CTRL);
++	udelay(20);
++
++	/* Wait, bounded, for the self-clearing reset bit; clear it by
++	 * hand as well so the driver works even where it is not
++	 * self-clearing.
++	 */
++	while (iter++ < 10000) {
++		if (!(readl(speedy->regs + SPEEDY_CTRL) & SPEEDY_SW_RST))
++			break;
++		if (time_after(jiffies, deadline)) {
++			writel(readl(speedy->regs + SPEEDY_CTRL) & ~SPEEDY_SW_RST,
++			       speedy->regs + SPEEDY_CTRL);
++			break;
++		}
++		udelay(5);
++	}
++	udelay(20);
++
++	writel(readl(speedy->regs + SPEEDY_CTRL) | SPEEDY_ENABLE,
++	       speedy->regs + SPEEDY_CTRL);
++}
++
++/* Recovery after a failed transaction, called with nothing in flight. */
++static int speedy_recover(struct exynos_speedy *speedy, int ret)
++{
++	speedy_dump_registers(speedy);
++	speedy_swreset(speedy);
++
++	return ret;
++}
++
++/*
++ * Front-end, mirroring the reference driver: reset the FIFO, program
++ * the transfer length (one byte each way), clear stale interrupt
++ * status, enable the interrupts used for completion.
++ */
++static void speedy_setup_xfer(struct exynos_speedy *speedy, bool read)
++{
++	writel(SPEEDY_FIFO_RESET, speedy->regs + SPEEDY_FIFO_CTRL);
++	udelay(10);
++	writel(SPEEDY_RX_LENGTH(1) | SPEEDY_TX_LENGTH(1),
++	       speedy->regs + SPEEDY_FIFO_CTRL);
++
++	speedy_int_clear(speedy);
++
++	if (read) {
++		writel(SPEEDY_TRANSFER_DONE | SPEEDY_FIFO_RX_ALMOST_FULL |
++		       SPEEDY_RX_FIFO_INT_TRAILER | SPEEDY_RX_MODEBIT_ERR |
++		       SPEEDY_RX_GLITCH_ERR | SPEEDY_RX_ENDBIT_ERR |
++		       SPEEDY_REMOTE_RESET_REQ_EN,
++		       speedy->regs + SPEEDY_INT_ENABLE);
++	} else {
++		writel(SPEEDY_TRANSFER_DONE | SPEEDY_FIFO_TX_ALMOST_EMPTY |
++		       SPEEDY_TX_LINE_BUSY_ERR | SPEEDY_TX_STOPBIT_ERR |
++		       SPEEDY_REMOTE_RESET_REQ_EN,
++		       speedy->regs + SPEEDY_INT_ENABLE);
++	}
++}
++
++/*
++ * Wait for a transfer to finish, bounded.  Any error bit or a timeout
++ * triggers the single recovery path (dump + reset).
++ */
++static int speedy_wait_done(struct exynos_speedy *speedy)
++{
++	unsigned long deadline = jiffies +
++				 usecs_to_jiffies(SPEEDY_XFER_TIMEOUT_US) + 1;
++	unsigned int iter = 0;
++	u32 status;
++
++	while (iter++ < 100000) {
++		status = readl(speedy->regs + SPEEDY_INT_STATUS);
++		if (status & SPEEDY_INT_ERRORS)
++			return speedy_recover(speedy, -EIO);
++		if (status & SPEEDY_TRANSFER_DONE)
++			return 0;
++		if (time_after(jiffies, deadline))
++			break;
++		udelay(5);
++	}
++
++	return speedy_recover(speedy, -ETIMEDOUT);
++}
++
++/* One single-byte random transaction.  @full is the packed 12-bit
++ * address: device[3:0] in bits [11:8], register[7:0] in bits [7:0].
++ */
++static int speedy_do_read(struct exynos_speedy *speedy, u16 full, u8 *buf)
++{
++	u32 cmd;
++	int ret;
++
++	speedy_setup_xfer(speedy, true);
++
++	cmd = SPEEDY_ACCESS_RANDOM | SPEEDY_DIRECTION_READ |
++	      SPEEDY_DEVICE(full >> 8) | SPEEDY_ADDRESS(full & 0xff);
++	writel(cmd, speedy->regs + SPEEDY_CMD);
++
++	ret = speedy_wait_done(speedy);
++	if (ret)
++		return ret;
++
++	*buf = readl(speedy->regs + SPEEDY_RX_DATA);
++	speedy_int_clear(speedy);
++
++	return 0;
++}
++
++static int speedy_do_write(struct exynos_speedy *speedy, u16 full, u8 val)
++{
++	u32 cmd;
++	int ret;
++
++	speedy_setup_xfer(speedy, false);
++
++	cmd = SPEEDY_ACCESS_RANDOM | SPEEDY_DIRECTION_WRITE |
++	      SPEEDY_DEVICE(full >> 8) | SPEEDY_ADDRESS(full & 0xff);
++	writel(cmd, speedy->regs + SPEEDY_CMD);
++
++	/* Payload after the command, like the reference driver. */
++	writel(val, speedy->regs + SPEEDY_TX_DATA);
++
++	ret = speedy_wait_done(speedy);
++	if (ret)
++		return ret;
++
++	speedy_int_clear(speedy);
++
++	return 0;
++}
++
++static int exynos_speedy_xfer(struct i2c_adapter *adap, struct i2c_msg *msgs,
++			      int num)
++{
++	struct exynos_speedy *speedy = adap->algo_data;
++	u16 base;
++	int ret;
++	unsigned int i, len;
++
++	{
++		static atomic_t bootlog = ATOMIC_INIT(64);
++
++		if (atomic_dec_if_positive(&bootlog) >= 0)
++			pr_info("speedy: xfer num=%d flags0=0x%x len0=%d addr0=0x%02x%s\n",
++				num, msgs[0].flags, msgs[0].len, msgs[0].addr,
++				num > 1 ? " +RD" : "");
++	}
++
++	/*
++	 * regmap "read": write message carrying the register offset, then
++	 * a read message.  Fuse them: the register offset becomes the
++	 * SPEEDY register address, the transfer is one transaction per
++	 * byte.
++	 */
++	if (num == 2 && !(msgs[0].flags & I2C_M_RD) && msgs[0].len == 1 &&
++	    (msgs[1].flags & I2C_M_RD)) {
++		base = ((msgs[0].addr & 0xF) << 8) | msgs[0].buf[0];
++		len = msgs[1].len;
++
++		for (i = 0; i < len; i++) {
++			ret = speedy_do_read(speedy, base + i, &msgs[1].buf[i]);
++			if (ret)
++				return ret;
++		}
++
++		return num;
++	}
++
++	/* regmap "write": register offset in byte 0, payload behind it. */
++	if (num == 1 && !(msgs[0].flags & I2C_M_RD) && msgs[0].len >= 2) {
++		base = ((msgs[0].addr & 0xF) << 8) | msgs[0].buf[0];
++		len = msgs[0].len - 1;
++
++		for (i = 0; i < len; i++) {
++			ret = speedy_do_write(speedy, base + i, msgs[0].buf[1 + i]);
++			if (ret)
++				return ret;
++		}
++
++		return num;
++	}
++
++	/* Single read without a register phase (e.g. SMBus receive byte):
++	 * synthesize register offset 0. */
++	if (num == 1 && (msgs[0].flags & I2C_M_RD)) {
++		base = (msgs[0].addr & 0xF) << 8;
++		len = msgs[0].len;
++
++		for (i = 0; i < len; i++) {
++			ret = speedy_do_read(speedy, base + i, &msgs[0].buf[i]);
++			if (ret)
++				return ret;
++		}
++
++		return num;
++	}
++
++	dev_err_ratelimited(speedy->dev,
++			    "unsupported transfer: num %d, len %d, flags 0x%x\n",
++			    num, msgs[0].len, msgs[0].flags);
++
++	return -EOPNOTSUPP;
++}
++
++static u32 exynos_speedy_func(struct i2c_adapter *adap)
++{
++	return I2C_FUNC_I2C | I2C_FUNC_SMBUS_EMUL;
++}
++
++static const struct i2c_algorithm exynos_speedy_algorithm = {
++	.master_xfer	= exynos_speedy_xfer,
++	.functionality	= exynos_speedy_func,
++};
++
++static int exynos_speedy_probe(struct platform_device *pdev)
++{
++	struct exynos_speedy *speedy;
++	struct resource *mem;
++	int ret;
++
++	speedy = devm_kzalloc(&pdev->dev, sizeof(*speedy), GFP_KERNEL);
++	if (!speedy)
++		return -ENOMEM;
++
++	speedy->dev = &pdev->dev;
++
++	speedy->clk = devm_clk_get(&pdev->dev, "gate_speedy");
++	if (IS_ERR(speedy->clk))
++		return dev_err_probe(&pdev->dev, PTR_ERR(speedy->clk),
++				     "cannot get gate_speedy clock\n");
++
++	/* The clock must be running before any SFR is touched. */
++	ret = clk_prepare_enable(speedy->clk);
++	if (ret)
++		return dev_err_probe(&pdev->dev, ret,
++				     "cannot enable gate_speedy clock\n");
++
++	mem = platform_get_resource(pdev, IORESOURCE_MEM, 0);
++	speedy->regs = devm_ioremap_resource(&pdev->dev, mem);
++	if (IS_ERR(speedy->regs)) {
++		ret = PTR_ERR(speedy->regs);
++		goto err_clk;
++	}
++
++	/* Start from a clean slate, like the reference driver. */
++	speedy_int_clear(speedy);
++	speedy_swreset(speedy);
++
++	snprintf(speedy->adap.name, sizeof(speedy->adap.name), "exynos-speedy");
++	speedy->adap.owner = THIS_MODULE;
++	speedy->adap.algo = &exynos_speedy_algorithm;
++	speedy->adap.algo_data = speedy;
++	speedy->adap.dev.parent = &pdev->dev;
++	speedy->adap.dev.of_node = pdev->dev.of_node;
++	speedy->adap.retries = 0;
++
++	platform_set_drvdata(pdev, speedy);
++
++	ret = i2c_add_adapter(&speedy->adap);
++	if (ret) {
++		dev_err(&pdev->dev, "failed to register adapter\n");
++		goto err_clk;
++	}
++
++	dev_info(&pdev->dev, "SPEEDY adapter registered\n");
++
++	return 0;
++
++err_clk:
++	clk_disable_unprepare(speedy->clk);
++	return ret;
++}
++
++static void exynos_speedy_remove(struct platform_device *pdev)
++{
++	struct exynos_speedy *speedy = platform_get_drvdata(pdev);
++
++	i2c_del_adapter(&speedy->adap);
++	clk_disable_unprepare(speedy->clk);
++}
++
++static const struct of_device_id exynos_speedy_match[] = {
++	{ .compatible = "samsung,exynos-speedy" },
++	{ }
++};
++MODULE_DEVICE_TABLE(of, exynos_speedy_match);
++
++static struct platform_driver exynos_speedy_driver = {
++	.probe	= exynos_speedy_probe,
++	.remove	= exynos_speedy_remove,
++	.driver	= {
++		.name	= "exynos-speedy",
++		.of_match_table = exynos_speedy_match,
++	},
++};
++module_platform_driver(exynos_speedy_driver);
++
++MODULE_DESCRIPTION("Exynos SPEEDY bus adapter");
++MODULE_AUTHOR("Youngmin Nam <youngmin.nam@samsung.com>");
++MODULE_AUTHOR("Markuss Broks <markuss.broks@gmail.com>");
++MODULE_LICENSE("GPL");
+diff --git a/drivers/mfd/sec-common.c b/drivers/mfd/sec-common.c
+index bd8b5f968..e00d42169 100644
+--- a/drivers/mfd/sec-common.c
++++ b/drivers/mfd/sec-common.c
+@@ -87,6 +87,10 @@ static const struct mfd_cell s2mps15_devs[] = {
+ 	MFD_CELL_OF("s2mps13-clk", NULL, NULL, 0, 0, "samsung,s2mps13-clk"),
+ };
+ 
++static const struct mfd_cell s2mps17_devs[] = {
++	MFD_CELL_NAME("s2mps17-regulator"),
++};
++
+ static const struct mfd_cell s2mpa01_devs[] = {
+ 	MFD_CELL_NAME("s2mpa01-pmic"),
+ 	MFD_CELL_RES("s2mps14-rtc", s2mps14_rtc_resources),
+@@ -109,10 +113,14 @@ static void sec_pmic_dump_rev(struct sec_pmic_dev *sec_pmic)
+ {
+ 	unsigned int val;
+ 
+-	/* For s2mpg1x, the revision is in a different regmap */
++	/* For s2mpg1x, the revision is in a different regmap; for s2mps17,
++	 * the revision is on the top-level page which this driver does not
++	 * map (only the PMIC page behind slave address 0x01 is modelled).
++	 */
+ 	switch (sec_pmic->device_type) {
+ 	case S2MPG10:
+ 	case S2MPG11:
++	case S2MPS17X:
+ 		return;
+ 	default:
+ 		break;
+@@ -199,10 +207,15 @@ int sec_pmic_probe(struct device *dev, int device_type, unsigned int irq,
+ 
+ 	sec_pmic->pdata = pdata;
+ 
++	dev_info(dev, "sec_pmic_probe: device type %d, irq %u\n",
++		 sec_pmic->device_type, irq);
++
+ 	irq_data = sec_irq_init(sec_pmic);
+ 	if (IS_ERR(irq_data))
+ 		return PTR_ERR(irq_data);
+ 
++	dev_info(dev, "sec_pmic_probe: irq chip initialised\n");
++
+ 	pm_runtime_set_active(sec_pmic->dev);
+ 
+ 	switch (sec_pmic->device_type) {
+@@ -242,6 +255,10 @@ int sec_pmic_probe(struct device *dev, int device_type, unsigned int irq,
+ 		sec_devs = s2mps15_devs;
+ 		num_sec_devs = ARRAY_SIZE(s2mps15_devs);
+ 		break;
++	case S2MPS17X:
++		sec_devs = s2mps17_devs;
++		num_sec_devs = ARRAY_SIZE(s2mps17_devs);
++		break;
+ 	case S2MPU02:
+ 		sec_devs = s2mpu02_devs;
+ 		num_sec_devs = ARRAY_SIZE(s2mpu02_devs);
+@@ -260,6 +277,9 @@ int sec_pmic_probe(struct device *dev, int device_type, unsigned int irq,
+ 	if (ret)
+ 		return ret;
+ 
++	dev_info(dev, "sec_pmic_probe: %d sub-devices registered\n",
++		 num_sec_devs);
++
+ 	sec_pmic_configure(sec_pmic);
+ 	sec_pmic_dump_rev(sec_pmic);
+ 
+diff --git a/drivers/mfd/sec-i2c.c b/drivers/mfd/sec-i2c.c
+index 3132b849b..70d7e259d 100644
+--- a/drivers/mfd/sec-i2c.c
++++ b/drivers/mfd/sec-i2c.c
+@@ -16,6 +16,7 @@
+ #include <linux/mfd/samsung/s2mps13.h>
+ #include <linux/mfd/samsung/s2mps14.h>
+ #include <linux/mfd/samsung/s2mps15.h>
++#include <linux/mfd/samsung/s2mps17.h>
+ #include <linux/mfd/samsung/s2mpu02.h>
+ #include <linux/mfd/samsung/s5m8767.h>
+ #include <linux/mod_devicetable.h>
+@@ -54,6 +55,21 @@ static bool s2mps11_volatile(struct device *dev, unsigned int reg)
+ 	}
+ }
+ 
++static bool s2mps17_volatile(struct device *dev, unsigned int reg)
++{
++	switch (reg) {
++	case S2MPS17_REG_INT1M:
++	case S2MPS17_REG_INT2M:
++	case S2MPS17_REG_INT3M:
++	case S2MPS17_REG_INT4M:
++	case S2MPS17_REG_INT5M:
++	case S2MPS17_REG_INT6M:
++		return false;
++	default:
++		return true;
++	}
++}
++
+ static bool s2mpu02_volatile(struct device *dev, unsigned int reg)
+ {
+ 	switch (reg) {
+@@ -116,6 +132,15 @@ static const struct regmap_config s2mps15_regmap_config = {
+ 	.cache_type = REGCACHE_FLAT,
+ };
+ 
++static const struct regmap_config s2mps17_regmap_config = {
++	.reg_bits = 8,
++	.val_bits = 8,
++
++	.max_register = S2MPS17_REG_L35CTRL,
++	.volatile_reg = s2mps17_volatile,
++	.cache_type = REGCACHE_FLAT,
++};
++
+ static const struct regmap_config s2mpu02_regmap_config = {
+ 	.reg_bits = 8,
+ 	.val_bits = 8,
+@@ -149,6 +174,9 @@ static int sec_pmic_i2c_probe(struct i2c_client *client)
+ 		return dev_err_probe(&client->dev, -ENODEV,
+ 				     "Unsupported device type\n");
+ 
++	dev_info(&client->dev, "sec-pmic-i2c probe (device type %d)\n",
++		 pdata->device_type);
++
+ 	regmap_pmic = devm_regmap_init_i2c(client, pdata->regmap_cfg);
+ 	if (IS_ERR(regmap_pmic))
+ 		return dev_err_probe(&client->dev, PTR_ERR(regmap_pmic),
+@@ -193,6 +221,11 @@ static const struct sec_pmic_i2c_platform_data s2mps15_data = {
+ 	.device_type = S2MPS15X,
+ };
+ 
++static const struct sec_pmic_i2c_platform_data s2mps17_data = {
++	.regmap_cfg = &s2mps17_regmap_config,
++	.device_type = S2MPS17X,
++};
++
+ static const struct sec_pmic_i2c_platform_data s2mpu02_data = {
+ 	.regmap_cfg = &s2mpu02_regmap_config,
+ 	.device_type = S2MPU02,
+@@ -215,6 +248,7 @@ static const struct of_device_id sec_pmic_i2c_of_match[] = {
+ 	{ .compatible = "samsung,s2mps13-pmic", .data = &s2mps13_data, },
+ 	{ .compatible = "samsung,s2mps14-pmic", .data = &s2mps14_data, },
+ 	{ .compatible = "samsung,s2mps15-pmic", .data = &s2mps15_data, },
++	{ .compatible = "samsung,s2mps17-pmic", .data = &s2mps17_data, },
+ 	{ .compatible = "samsung,s2mpu02-pmic", .data = &s2mpu02_data, },
+ 	{ .compatible = "samsung,s2mpu05-pmic", .data = &s2mpu05_data, },
+ 	{ .compatible = "samsung,s5m8767-pmic", .data = &s5m8767_data, },
+diff --git a/drivers/mfd/sec-irq.c b/drivers/mfd/sec-irq.c
+index 133188391..ca42bf60c 100644
+--- a/drivers/mfd/sec-irq.c
++++ b/drivers/mfd/sec-irq.c
+@@ -14,6 +14,7 @@
+ #include <linux/mfd/samsung/s2mpg11.h>
+ #include <linux/mfd/samsung/s2mps11.h>
+ #include <linux/mfd/samsung/s2mps14.h>
++#include <linux/mfd/samsung/s2mps17.h>
+ #include <linux/mfd/samsung/s2mpu02.h>
+ #include <linux/mfd/samsung/s2mpu05.h>
+ #include <linux/mfd/samsung/s5m8767.h>
+@@ -181,6 +182,30 @@ static const struct regmap_irq s2mps14_irqs[] = {
+ 	REGMAP_IRQ_REG(S2MPS14_IRQ_TSD, 2, S2MPS14_IRQ_TSD_MASK),
+ };
+ 
++static const struct regmap_irq s2mps17_irqs[] = {
++	REGMAP_IRQ_REG(S2MPS17_IRQ_PWRONR, 0, BIT(0)),
++	REGMAP_IRQ_REG(S2MPS17_IRQ_PWRONF, 0, BIT(1)),
++	REGMAP_IRQ_REG(S2MPS17_IRQ_JIGONBF, 0, BIT(2)),
++	REGMAP_IRQ_REG(S2MPS17_IRQ_JIGONBR, 0, BIT(3)),
++	REGMAP_IRQ_REG(S2MPS17_IRQ_ACOKBF, 0, BIT(4)),
++	REGMAP_IRQ_REG(S2MPS17_IRQ_ACOKBR, 0, BIT(5)),
++	REGMAP_IRQ_REG(S2MPS17_IRQ_PWRON1S, 0, BIT(6)),
++	REGMAP_IRQ_REG(S2MPS17_IRQ_MRB, 0, BIT(7)),
++
++	REGMAP_IRQ_REG(S2MPS17_IRQ_RTC60S, 1, BIT(0)),
++	REGMAP_IRQ_REG(S2MPS17_IRQ_RTCA1, 1, BIT(1)),
++	REGMAP_IRQ_REG(S2MPS17_IRQ_RTCA0, 1, BIT(2)),
++	REGMAP_IRQ_REG(S2MPS17_IRQ_SMPL, 1, BIT(3)),
++	REGMAP_IRQ_REG(S2MPS17_IRQ_RTC1S, 1, BIT(4)),
++	REGMAP_IRQ_REG(S2MPS17_IRQ_WTSR, 1, BIT(5)),
++	REGMAP_IRQ_REG(S2MPS17_IRQ_WRSTB, 1, BIT(6)),
++
++	REGMAP_IRQ_REG(S2MPS17_IRQ_INT120C, 2, BIT(0)),
++	REGMAP_IRQ_REG(S2MPS17_IRQ_INT140C, 2, BIT(1)),
++	REGMAP_IRQ_REG(S2MPS17_IRQ_TSD, 2, BIT(2)),
++	REGMAP_IRQ_REG(S2MPS17_IRQ_ADCDONE, 2, BIT(3)),
++};
++
+ static const struct regmap_irq s2mpu02_irqs[] = {
+ 	REGMAP_IRQ_REG(S2MPU02_IRQ_PWRONF, 0, S2MPS11_IRQ_PWRONF_MASK),
+ 	REGMAP_IRQ_REG(S2MPU02_IRQ_PWRONR, 0, S2MPS11_IRQ_PWRONR_MASK),
+@@ -317,6 +342,16 @@ static const struct regmap_irq_chip s2mps15_irq_chip = {
+ 	S2MPS1X_IRQ_CHIP_COMMON_DATA,
+ };
+ 
++static const struct regmap_irq_chip s2mps17_irq_chip = {
++	.name = "s2mps17",
++	.irqs = s2mps17_irqs,
++	.num_irqs = ARRAY_SIZE(s2mps17_irqs),
++	.num_regs = 6,
++	.status_base = S2MPS17_REG_INT1,
++	.mask_base = S2MPS17_REG_INT1M,
++	.ack_base = S2MPS17_REG_INT1,
++};
++
+ static const struct regmap_irq_chip s2mpu02_irq_chip = {
+ 	.name = "s2mpu02",
+ 	.irqs = s2mpu02_irqs,
+@@ -436,6 +471,9 @@ struct regmap_irq_chip_data *sec_irq_init(struct sec_pmic_dev *sec_pmic)
+ 	case S2MPS15X:
+ 		sec_irq_chip = &s2mps15_irq_chip;
+ 		break;
++	case S2MPS17X:
++		sec_irq_chip = &s2mps17_irq_chip;
++		break;
+ 	case S2MPU02:
+ 		sec_irq_chip = &s2mpu02_irq_chip;
+ 		break;
+diff --git a/drivers/net/wireless/broadcom/brcm80211/brcmfmac/chip.c b/drivers/net/wireless/broadcom/brcm80211/brcmfmac/chip.c
+index a790f1693..f5e3a0dbf 100644
+--- a/drivers/net/wireless/broadcom/brcm80211/brcmfmac/chip.c
++++ b/drivers/net/wireless/broadcom/brcm80211/brcmfmac/chip.c
+@@ -725,6 +725,8 @@ static u32 brcmf_chip_tcm_rambase(struct brcmf_chip_priv *ci)
+ 	case BRCM_CC_43602_CHIP_ID:
+ 	case BRCM_CC_4371_CHIP_ID:
+ 		return 0x180000;
++	case BRCM_CC_4361_CHIP_ID:
++		return 0x170000;
+ 	case BRCM_CC_43465_CHIP_ID:
+ 	case BRCM_CC_43525_CHIP_ID:
+ 	case BRCM_CC_4365_CHIP_ID:
+@@ -738,6 +740,7 @@ static u32 brcmf_chip_tcm_rambase(struct brcmf_chip_priv *ci)
+ 	case BRCM_CC_4364_CHIP_ID:
+ 	case CY_CC_4373_CHIP_ID:
+ 		return 0x160000;
++	case BRCM_CC_4375_CHIP_ID:
+ 	case BRCM_CC_43751_CHIP_ID:
+ 	case BRCM_CC_43752_CHIP_ID:
+ 	case BRCM_CC_4377_CHIP_ID:
+diff --git a/drivers/net/wireless/broadcom/brcm80211/brcmfmac/pcie.c b/drivers/net/wireless/broadcom/brcm80211/brcmfmac/pcie.c
+index 45b342ea0..f0b265f52 100644
+--- a/drivers/net/wireless/broadcom/brcm80211/brcmfmac/pcie.c
++++ b/drivers/net/wireless/broadcom/brcm80211/brcmfmac/pcie.c
+@@ -59,6 +59,7 @@ BRCMF_FW_CLM_DEF(43570, "brcmfmac43570-pcie");
+ BRCMF_FW_DEF(4358, "brcmfmac4358-pcie");
+ BRCMF_FW_DEF(4359, "brcmfmac4359-pcie");
+ BRCMF_FW_DEF(4359C, "brcmfmac4359c-pcie");
++BRCMF_FW_CLM_DEF(4361, "brcmfmac4361-pcie");
+ BRCMF_FW_CLM_DEF(4364B2, "brcmfmac4364b2-pcie");
+ BRCMF_FW_CLM_DEF(4364B3, "brcmfmac4364b3-pcie");
+ BRCMF_FW_DEF(4365B, "brcmfmac4365b-pcie");
+@@ -66,6 +67,7 @@ BRCMF_FW_DEF(4365C, "brcmfmac4365c-pcie");
+ BRCMF_FW_DEF(4366B, "brcmfmac4366b-pcie");
+ BRCMF_FW_DEF(4366C, "brcmfmac4366c-pcie");
+ BRCMF_FW_DEF(4371, "brcmfmac4371-pcie");
++BRCMF_FW_CLM_DEF(4375, "brcmfmac4375-pcie");
+ BRCMF_FW_CLM_DEF(43752, "brcmfmac43752-pcie");
+ BRCMF_FW_CLM_DEF(4377B3, "brcmfmac4377b3-pcie");
+ BRCMF_FW_CLM_DEF(4378B1, "brcmfmac4378b1-pcie");
+@@ -98,6 +100,7 @@ static const struct brcmf_firmware_mapping brcmf_pcie_fwnames[] = {
+ 	BRCMF_FW_ENTRY(BRCM_CC_4358_CHIP_ID, 0xFFFFFFFF, 4358),
+ 	BRCMF_FW_ENTRY(BRCM_CC_4359_CHIP_ID, 0x000001FF, 4359),
+ 	BRCMF_FW_ENTRY(BRCM_CC_4359_CHIP_ID, 0xFFFFFE00, 4359C),
++	BRCMF_FW_ENTRY(BRCM_CC_4361_CHIP_ID, 0xFFFFFFFF, 4361),
+ 	BRCMF_FW_ENTRY(BRCM_CC_4364_CHIP_ID, 0x0000000F, 4364B2), /* 3 */
+ 	BRCMF_FW_ENTRY(BRCM_CC_4364_CHIP_ID, 0xFFFFFFF0, 4364B3), /* 4 */
+ 	BRCMF_FW_ENTRY(BRCM_CC_4365_CHIP_ID, 0x0000000F, 4365B),
+@@ -107,6 +110,7 @@ static const struct brcmf_firmware_mapping brcmf_pcie_fwnames[] = {
+ 	BRCMF_FW_ENTRY(BRCM_CC_43664_CHIP_ID, 0xFFFFFFF0, 4366C),
+ 	BRCMF_FW_ENTRY(BRCM_CC_43666_CHIP_ID, 0xFFFFFFF0, 4366C),
+ 	BRCMF_FW_ENTRY(BRCM_CC_4371_CHIP_ID, 0xFFFFFFFF, 4371),
++	BRCMF_FW_ENTRY(BRCM_CC_4375_CHIP_ID, 0xFFFFFFFF, 4375),
+ 	BRCMF_FW_ENTRY(BRCM_CC_43752_CHIP_ID, 0xFFFFFFFF, 43752),
+ 	BRCMF_FW_ENTRY(BRCM_CC_4377_CHIP_ID, 0xFFFFFFFF, 4377B3), /* revision ID 4 */
+ 	BRCMF_FW_ENTRY(BRCM_CC_4378_CHIP_ID, 0x0000000F, 4378B1), /* revision ID 3 */
+@@ -1798,10 +1802,37 @@ static int brcmf_pcie_get_resource(struct brcmf_pciedev_info *devinfo)
+ 
+ 	/* Bar-0 mapped address */
+ 	bar0_addr = pci_resource_start(pdev, 0);
++	if (bar0_addr == 0) {
++		/*
++		 * Exynos8895 (greatlte): the PCI core leaves BAR0
++		 * unassigned (BAR2's 4 MiB decode consumes the window),
++		 * so program it past the routed aperture ourselves; the
++		 * chip decodes it there and the host controller driver
++		 * provides an outbound iATU alias CPU 0x11b00000 ->
++		 * PCI 0x11c00000 for host access.
++		 */
++		pci_write_config_dword(pdev, PCI_BASE_ADDRESS_0, 0x11c00004);
++		pci_write_config_dword(pdev, PCI_BASE_ADDRESS_1, 0);
++		bar0_addr = 0x11b00000;
++		brcmf_dbg(PCIE, "BAR0 unassigned, programming exynos8895 alias\n");
++	} else if (bar0_addr >= 0x11c00000) {
++		/*
++		 * Assigned past the routed region (0x11800000-0x11c00000):
++		 * same alias, but the BAR already decodes its assigned
++		 * address on the chip.
++		 */
++		bar0_addr = 0x11b00000;
++		brcmf_dbg(PCIE, "BAR0 beyond routed aperture, using exynos8895 alias\n");
++	}
+ 	/* Bar-1 mapped address */
+ 	bar1_addr = pci_resource_start(pdev, 2);
+ 	/* read Bar-1 mapped memory range */
+ 	bar1_size = pci_resource_len(pdev, 2);
++	if (bar1_addr == 0) {
++		/* BAR2 lives at the base of the routed aperture */
++		bar1_addr = 0x11800000;
++		bar1_size = 0x400000;
++	}
+ 	if ((bar1_size == 0) || (bar1_addr == 0)) {
+ 		brcmf_err(bus, "BAR1 Not enabled, device size=%ld, addr=%#016llx\n",
+ 			  bar1_size, (unsigned long long)bar1_addr);
+@@ -2750,6 +2781,8 @@ static const struct pci_device_id brcmf_pcie_devid_table[] = {
+ 	BRCMF_PCIE_DEVICE(BRCM_PCIE_4378_DEVICE_ID, WCC_SEED),
+ 	BRCMF_PCIE_DEVICE(BRCM_PCIE_4387_DEVICE_ID, WCC_SEED),
+ 	BRCMF_PCIE_DEVICE(BRCM_PCIE_43752_DEVICE_ID, WCC_SEED),
++	BRCMF_PCIE_DEVICE(BRCM_PCIE_4375_DEVICE_ID, WCC_SEED),
++	BRCMF_PCIE_DEVICE(BRCM_PCIE_4375_RAW_DEVICE_ID, WCC_SEED),
+ 	BRCMF_PCIE_DEVICE(CY_PCIE_54591_DEVICE_ID, CYW),
+ 	{ /* end: all zeroes */ }
+ };
+diff --git a/drivers/net/wireless/broadcom/brcm80211/include/brcm_hw_ids.h b/drivers/net/wireless/broadcom/brcm80211/include/brcm_hw_ids.h
+index df3b67ba4..ac5a41a40 100644
+--- a/drivers/net/wireless/broadcom/brcm80211/include/brcm_hw_ids.h
++++ b/drivers/net/wireless/broadcom/brcm80211/include/brcm_hw_ids.h
+@@ -52,6 +52,8 @@
+ #define BRCM_CC_43664_CHIP_ID		43664
+ #define BRCM_CC_43666_CHIP_ID		43666
+ #define BRCM_CC_4371_CHIP_ID		0x4371
++#define BRCM_CC_4361_CHIP_ID		0x4361
++#define BRCM_CC_4375_CHIP_ID		4375
+ #define BRCM_CC_43751_CHIP_ID		43751
+ #define BRCM_CC_43752_CHIP_ID		43752
+ #define BRCM_CC_4377_CHIP_ID		0x4377
+@@ -95,6 +97,8 @@
+ #define BRCM_PCIE_4366_5G_DEVICE_ID	0x43c5
+ #define BRCM_PCIE_4371_DEVICE_ID	0x440d
+ #define BRCM_PCIE_43596_DEVICE_ID	0x4415
++#define BRCM_PCIE_4375_DEVICE_ID	0x4475
++#define BRCM_PCIE_4375_RAW_DEVICE_ID	0x441f
+ #define BRCM_PCIE_43752_DEVICE_ID	0x449d
+ #define BRCM_PCIE_4377_DEVICE_ID	0x4488
+ #define BRCM_PCIE_4378_DEVICE_ID	0x4425
+diff --git a/drivers/pci/controller/dwc/pci-exynos.c b/drivers/pci/controller/dwc/pci-exynos.c
+index 0bb7d4f5d..f8fb77314 100644
+--- a/drivers/pci/controller/dwc/pci-exynos.c
++++ b/drivers/pci/controller/dwc/pci-exynos.c
+@@ -11,6 +11,7 @@
+ 
+ #include <linux/clk.h>
+ #include <linux/delay.h>
++#include <linux/gpio/consumer.h>
+ #include <linux/interrupt.h>
+ #include <linux/kernel.h>
+ #include <linux/init.h>
+@@ -20,6 +21,10 @@
+ #include <linux/regulator/consumer.h>
+ #include <linux/mod_devicetable.h>
+ #include <linux/module.h>
++#include <linux/of.h>
++#include <linux/of_clk.h>
++#include <linux/io.h>
++#include <linux/resource_ext.h>
+ 
+ #include "pcie-designware.h"
+ 
+@@ -51,11 +56,43 @@
+ #define PCIE_ELBI_SLV_ARMISC		0x120
+ #define PCIE_ELBI_SLV_DBI_ENABLE	BIT(21)
+ 
++/* PCIe ELBI registers specific to Exynos8895 */
++#define PCIE_8895_ELBI_SOFT_CORE_RESET	0x1d0
++#define PCIE_8895_ELBI_PCS_G_RESET	0x288
++#define PCIE_8895_ELBI_PHY_RESET	0x28c
++#define PCIE_8895_ELBI_MAC_RESET	0x290
++
++/*
++ * The 8895 iATU registers live inline in the DBI config space (viewport
++ * based, not unrolled), at these offsets from dbi_base.
++ */
++#define EXYNOS_ATU_VIEWPORT		0x900
++#define EXYNOS_ATU_CR1			0x904
++#define EXYNOS_ATU_CR2			0x908
++#define EXYNOS_ATU_LOWER_BASE		0x90c
++#define EXYNOS_ATU_UPPER_BASE		0x910
++#define EXYNOS_ATU_LIMIT		0x914
++#define EXYNOS_ATU_LOWER_TARGET		0x918
++#define EXYNOS_ATU_UPPER_TARGET		0x91c
++#define EXYNOS_ATU_REGION_ENABLE	BIT(31)
++#define EXYNOS_ATU_TYPE_MEM		0x0
++
+ struct exynos_pcie {
+ 	struct dw_pcie			pci;
+ 	struct clk_bulk_data		*clks;
+ 	struct phy			*phy;
+ 	struct regulator_bulk_data	supplies[2];
++	struct gpio_desc		*perst_gpio;
++	struct gpio_desc		*wlan_en_gpio;
++	const struct exynos_pcie_soc_data *soc;
++};
++
++struct exynos_pcie_soc_data {
++	bool				wlan_power;
++};
++
++static const struct exynos_pcie_soc_data exynos8895_soc_data = {
++	.wlan_power			= true,
+ };
+ 
+ static void exynos_pcie_writel(void __iomem *base, u32 val, u32 reg)
+@@ -68,6 +105,36 @@ static u32 exynos_pcie_readl(void __iomem *base, u32 reg)
+ 	return readl(base + reg);
+ }
+ 
++static int exynos_pcie_enable_supplies(struct exynos_pcie *ep)
++{
++	int i, ret;
++
++	for (i = 0; i < ARRAY_SIZE(ep->supplies); i++) {
++		if (!ep->supplies[i].consumer)
++			continue;
++		ret = regulator_enable(ep->supplies[i].consumer);
++		if (ret)
++			return ret;
++	}
++
++	return 0;
++}
++
++static int exynos_pcie_disable_supplies(struct exynos_pcie *ep)
++{
++	int i, ret;
++
++	for (i = ARRAY_SIZE(ep->supplies) - 1; i >= 0; i--) {
++		if (!ep->supplies[i].consumer)
++			continue;
++		ret = regulator_disable(ep->supplies[i].consumer);
++		if (ret)
++			return ret;
++	}
++
++	return 0;
++}
++
+ static void exynos_pcie_sideband_dbi_w_mode(struct exynos_pcie *ep, bool on)
+ {
+ 	struct dw_pcie *pci = &ep->pci;
+@@ -240,10 +307,264 @@ static int exynos_pcie_host_init(struct dw_pcie_rp *pp)
+ 	return 0;
+ }
+ 
++#define PCIE_8895_ELBI_IRQ_EN_PULSE	0x00c
++#define PCIE_8895_ELBI_APP_LTSSM_ENABLE	0x02c
++#define PCIE_8895_ELBI_L1_BUG_FIX	0x038
++#define PCIE_8895_ELBI_RDLH_LINKUP	0x074
++#define PCIE_8895_ELBI_APP_REQ_EXIT_L1	0x0f4
++#define PCIE_8895_ELBI_LINKDOWN_RST_CTRL_SEL 0x1b8
++#define PCIE_8895_ELBI_SOFT_CORE_RESET	0x1d0
++#define PCIE_8895_ELBI_STATE_HISTORY	0x274
++#define PCIE_8895_ELBI_QCH_SEL		0x2c8
++
++#include "pcie-8895-tables.h"
++
++static int exynos8895_pcie_host_init(struct dw_pcie_rp *pp)
++{
++	struct dw_pcie *pci = to_dw_pcie_from_pp(pp);
++	struct exynos_pcie *ep = to_exynos_pcie(pci);
++	void __iomem *phy = ioremap(0x116d0000, 0x400);
++	void __iomem *pcs = ioremap(0x116c0000, 0x200);
++	void __iomem *sysreg = ioremap(0x11421044, 0x10);
++	void __iomem *pmu = ioremap(0x16480000, 0x1000);
++	u32 val;
++	int i;
++
++	pp->bridge->ops = &exynos_pci_ops;
++
++	/*
++	 * The designware core reserved the config aperture in the
++	 * resource tree (dw_pcie_host_get_resources). That punches a
++	 * hole into the single host bridge window on this SoC and the
++	 * PCI core then fails to assign endpoint BARs around it ("can't
++	 * assign; no space"). Config TLPs are routed by the outbound
++	 * iATU window index 0 and do not need the reservation, so drop
++	 * it here - still before pci_host_probe() - and let the BARs
++	 * span the whole window.
++	 */
++	if (pp->cfg0_size) {
++		dev_info(pci->dev, "DBG: releasing cfg0 reservation at %pa\n",
++			 &pp->cfg0_base);
++		release_mem_region(pp->cfg0_base, pp->cfg0_size);
++	}
++
++	/*
++	 * The Exynos8895 iATU registers are laid out inline in the DBI
++	 * config space (viewport at 0x900, region window at 0x904..0x91c),
++	 * not in a separate window at DEFAULT_DBI_ATU_OFFSET as the
++	 * designware core assumes. Point atu_base at the exynos layout so
++	 * the core's generic ATU offsets line up, otherwise the outbound
++	 * window is never programmed and endpoint BAR reads abort.
++	 */
++	pci->atu_base = pci->dbi_base + PCIE_ATU_VIEWPORT + 4;
++
++	dev_info(ep->pci.dev, "DBG: perst+wlan_en assert\n");
++	gpiod_set_value_cansleep(ep->perst_gpio, 1);
++	dev_info(ep->pci.dev, "DBG: perst set ok\n");
++	gpiod_set_value_cansleep(ep->wlan_en_gpio, 1);
++	dev_info(ep->pci.dev, "DBG: wlan_en set ok\n");
++	mdelay(100);
++	dev_info(ep->pci.dev, "DBG: after mdelay\n");
++
++	dev_info(ep->pci.dev, "DBG: pre sysreg read\n");
++	val = readl(sysreg + 0x0);
++	dev_info(ep->pci.dev, "DBG: sysreg[0]=0x%x\n", val);
++	writel(val & ~BIT(1), sysreg + 0x0);
++	dev_info(ep->pci.dev, "DBG: A sysreg pcie_ctrl done\n");
++
++	dev_info(ep->pci.dev, "DBG: B lane ctrl\n");
++	val = readl(sysreg + 0xc);
++	val &= ~(0xf << 4);
++	val &= ~(0xf << 2);
++	val |= (0x3 << 2);
++	val &= ~BIT(1);
++	writel(val, sysreg + 0xc);
++
++	dev_info(ep->pci.dev, "DBG: C pmu isolation release\n");
++	writel(readl(pmu + 0x71c) | BIT(0), pmu + 0x71c);
++
++	dev_info(ep->pci.dev, "DBG: D phy cal cmn\n");
++	for (i = 0; i < ARRAY_SIZE(dbg_cmn); i++)
++		writel(dbg_cmn[i], phy + i * 4);
++
++	dev_info(ep->pci.dev, "DBG: D2 phy cal trsv\n");
++	for (i = 0; i < ARRAY_SIZE(dbg_trsv); i++)
++		writel(dbg_trsv[i], phy + (0x30 + i) * 4);
++
++	dev_info(ep->pci.dev, "DBG: E pcs\n");
++	writel(0x70, pcs + 0xf8);
++	writel(0x87, pcs + 0x100);
++	writel(0x50, pcs + 0x104);
++	val = readl(pcs + 0xc);
++	val &= ~BIT(1);
++	val |= BIT(4);
++	writel(val, pcs + 0xc);
++
++	dev_info(ep->pci.dev, "DBG: F soft core reset\n");
++	exynos_pcie_writel(pci->elbi_base, 0, PCIE_8895_ELBI_SOFT_CORE_RESET);
++	udelay(20);
++	exynos_pcie_writel(pci->elbi_base, 1, PCIE_8895_ELBI_SOFT_CORE_RESET);
++
++	dev_info(ep->pci.dev, "DBG: G elbi glue\n");
++	val = exynos_pcie_readl(pci->elbi_base, PCIE_8895_ELBI_APP_REQ_EXIT_L1);
++	val |= 0x1 | (0x1 << 4);
++	exynos_pcie_writel(pci->elbi_base, val, PCIE_8895_ELBI_APP_REQ_EXIT_L1);
++	exynos_pcie_writel(pci->elbi_base, 0x2, PCIE_8895_ELBI_LINKDOWN_RST_CTRL_SEL);
++	val = exynos_pcie_readl(pci->elbi_base, PCIE_8895_ELBI_QCH_SEL);
++	val &= ~0xfff;
++	exynos_pcie_writel(pci->elbi_base, val, PCIE_8895_ELBI_QCH_SEL);
++	exynos_pcie_writel(pci->elbi_base, 1, PCIE_8895_ELBI_L1_BUG_FIX);
++	val = exynos_pcie_readl(pci->elbi_base, PCIE_8895_ELBI_STATE_HISTORY);
++	val |= 0x1;
++	exynos_pcie_writel(pci->elbi_base, val, PCIE_8895_ELBI_STATE_HISTORY);
++
++	dev_info(ep->pci.dev, "DBG: H irq pulse\n");
++	exynos_pcie_writel(pci->elbi_base, 0xf, PCIE_8895_ELBI_IRQ_EN_PULSE);
++
++	dev_info(ep->pci.dev, "DBG: host_init done (perst held)\n");
++	return 0;
++}
++
++/*
++ * The Broadcom device is used with legacy INTx interrupts only; keep
++ * the designware core from instantiating an (unserviceable) MSI domain.
++ */
++static int exynos8895_pcie_msi_init(struct dw_pcie_rp *pp)
++{
++	return 0;
++}
++
++/*
++ * The DWC core only programs outbound MEM iATU windows from the bridge
++ * ranges when the bridge uses dw_child_pcie_ops or ECAM. This driver
++ * installs its own child config ops (the config aperture needs its own
++ * viewport setup), so the MEM windows are programmed here instead.
++ * Outbound window index 0 stays reserved for config accesses.
++ */
++static void exynos8895_pcie_prog_mem_atu(struct dw_pcie *pci)
++{
++	struct exynos_pcie *ep = to_exynos_pcie(pci);
++
++	/*
++	 * The SoC address decoder only routes 0x11800000-0x11c00000 (4 MiB)
++	 * to the PCIe AXI slave, and the bridge window is fully consumed by
++	 * BAR2 (4 MiB, assigned at 0x11800000). The last ~1 MiB of the
++	 * routed region cannot hold BAR2-sized space, so:
++	 *
++	 *  - idx1: CPU 0x11800000-0x11afffff -> PCI 0x11800000
++	 *    (BAR2 low 3 MiB, identity; the chip decodes the full 4 MiB
++	 *    BAR2 but host firmware/ring traffic lives below 3 MiB)
++	 *  - idx2: CPU 0x11b00000-0x11b07fff -> PCI 0x11c00000
++	 *    (BAR0 alias; BAR0 is assigned 0x11c00000, past the routed
++	 *    region, and the brcmfmac driver is patched to map regs at
++	 *    the alias)
++	 *
++	 * idx0 stays reserved for config TLPs at 0x11bff000.
++	 */
++	exynos_pcie_writel(pci->dbi_base, PCIE_ATU_REGION_DIR_OB | 1,
++			   EXYNOS_ATU_VIEWPORT);
++	exynos_pcie_writel(pci->dbi_base, EXYNOS_ATU_TYPE_MEM, EXYNOS_ATU_CR1);
++	exynos_pcie_writel(pci->dbi_base, 0x11800000, EXYNOS_ATU_LOWER_BASE);
++	exynos_pcie_writel(pci->dbi_base, 0, EXYNOS_ATU_UPPER_BASE);
++	exynos_pcie_writel(pci->dbi_base, 0x11afffff, EXYNOS_ATU_LIMIT);
++	exynos_pcie_writel(pci->dbi_base, 0x11800000, EXYNOS_ATU_LOWER_TARGET);
++	exynos_pcie_writel(pci->dbi_base, 0, EXYNOS_ATU_UPPER_TARGET);
++	exynos_pcie_writel(pci->dbi_base, EXYNOS_ATU_REGION_ENABLE,
++			   EXYNOS_ATU_CR2);
++	dev_info(ep->pci.dev,
++		 "DBG: ATU ob win1 0x11800000-0x11afffff -> 0x11800000 (BAR2 low 3M)\n");
++
++	exynos_pcie_writel(pci->dbi_base, PCIE_ATU_REGION_DIR_OB | 2,
++			   EXYNOS_ATU_VIEWPORT);
++	exynos_pcie_writel(pci->dbi_base, EXYNOS_ATU_TYPE_MEM, EXYNOS_ATU_CR1);
++	exynos_pcie_writel(pci->dbi_base, 0x11b00000, EXYNOS_ATU_LOWER_BASE);
++	exynos_pcie_writel(pci->dbi_base, 0, EXYNOS_ATU_UPPER_BASE);
++	exynos_pcie_writel(pci->dbi_base, 0x11b07fff, EXYNOS_ATU_LIMIT);
++	exynos_pcie_writel(pci->dbi_base, 0x11c00000, EXYNOS_ATU_LOWER_TARGET);
++	exynos_pcie_writel(pci->dbi_base, 0, EXYNOS_ATU_UPPER_TARGET);
++	exynos_pcie_writel(pci->dbi_base, EXYNOS_ATU_REGION_ENABLE,
++			   EXYNOS_ATU_CR2);
++	dev_info(ep->pci.dev,
++		 "DBG: ATU ob win2 0x11b00000-0x11b07fff -> 0x11c00000 (BAR0 alias)\n");
++}
++
++/*
++ * Start the link the way the downstream driver does: release PERST,
++ * give the endpoint time to come out of reset, assert the LTSSM and
++ * poll the RDLH link status with bounded retries.
++ */
++static int exynos8895_pcie_start_link(struct dw_pcie *pci)
++{
++	struct exynos_pcie *ep = to_exynos_pcie(pci);
++	int tries, count;
++	u32 val;
++
++	/*
++	 * The DWC core resets with MEM/LIMIT = 0, which decodes as a bogus
++	 * 1 MiB window at PCI address 0. Left set, the PCI resource core
++	 * treats it as fixed and refuses to assign endpoint BARs into the
++	 * host aperture. Disable it (with DBI writes unlocked) so the core
++	 * programs a real window from the host bridge ranges during the
++	 * upcoming bus scan.
++	 */
++	dw_pcie_dbi_ro_wr_en(pci);
++	dw_pcie_writew_dbi(pci, PCI_MEMORY_BASE, 0xfff0);
++	dw_pcie_writew_dbi(pci, PCI_MEMORY_LIMIT, 0x0000);
++	dw_pcie_writew_dbi(pci, PCI_PREF_MEMORY_BASE, 0xfff0);
++	dw_pcie_writew_dbi(pci, PCI_PREF_MEMORY_LIMIT, 0x0000);
++	dw_pcie_writel_dbi(pci, PCI_PREF_BASE_UPPER32, 0);
++	dw_pcie_writel_dbi(pci, PCI_PREF_LIMIT_UPPER32, 0);
++	dw_pcie_dbi_ro_wr_dis(pci);
++	dev_info(ep->pci.dev, "DBG: bridge windows disabled\n");
++
++	dev_info(ep->pci.dev, "DBG: start_link: release perst\n");
++	gpiod_set_value_cansleep(ep->perst_gpio, 0);
++	usleep_range(18000, 20000);
++
++	for (tries = 0; tries < 10; tries++) {
++		exynos_pcie_writel(pci->elbi_base, 0x1,
++				   PCIE_8895_ELBI_APP_LTSSM_ENABLE);
++		count = 0;
++		while (count < 1000) {
++			val = exynos_pcie_readl(pci->elbi_base,
++						PCIE_8895_ELBI_RDLH_LINKUP) & 0x1f;
++			if (val >= 0x0d && val <= 0x14)
++				break;
++			count++;
++			udelay(10);
++		}
++		if (count < 1000) {
++			dev_info(ep->pci.dev, "DBG: link up, rdlh=0x%x\n", val);
++			exynos8895_pcie_prog_mem_atu(pci);
++			return 0;
++		}
++		dev_info(ep->pci.dev, "DBG: link try %d failed rdlh=0x%x\n",
++			 tries, val);
++		gpiod_set_value_cansleep(ep->perst_gpio, 1);
++		usleep_range(9000, 11000);
++		gpiod_set_value_cansleep(ep->perst_gpio, 0);
++		usleep_range(18000, 20000);
++	}
++
++	return -ETIMEDOUT;
++}
++
+ static const struct dw_pcie_host_ops exynos_pcie_host_ops = {
+ 	.init = exynos_pcie_host_init,
+ };
+ 
++static const struct dw_pcie_host_ops exynos8895_pcie_host_ops = {
++	.init = exynos8895_pcie_host_init,
++	.msi_init = exynos8895_pcie_msi_init,
++};
++
++static const struct dw_pcie_ops exynos8895_dw_pcie_ops = {
++	.read_dbi = exynos_pcie_read_dbi,
++	.write_dbi = exynos_pcie_write_dbi,
++	.link_up = exynos_pcie_link_up,
++	.start_link = exynos8895_pcie_start_link,
++};
++
+ static int exynos_add_pcie_port(struct exynos_pcie *ep,
+ 				       struct platform_device *pdev)
+ {
+@@ -263,7 +584,8 @@ static int exynos_add_pcie_port(struct exynos_pcie *ep,
+ 		return ret;
+ 	}
+ 
+-	pp->ops = &exynos_pcie_host_ops;
++	pp->ops = ep->soc->wlan_power ? &exynos8895_pcie_host_ops :
++					&exynos_pcie_host_ops;
+ 	pp->msi_irq[0] = -ENODEV;
+ 
+ 	ret = dw_pcie_host_init(pp);
+@@ -296,22 +618,85 @@ static int exynos_pcie_probe(struct platform_device *pdev)
+ 	ep->pci.dev = dev;
+ 	ep->pci.ops = &dw_pcie_ops;
+ 
++	ep->soc = of_device_get_match_data(dev);
++	if (!ep->soc)
++		return -EINVAL;
++
++	if (ep->soc->wlan_power)
++		ep->pci.ops = &exynos8895_dw_pcie_ops;
++
+ 	ep->phy = devm_of_phy_get(dev, np, NULL);
+ 	if (IS_ERR(ep->phy))
+ 		return PTR_ERR(ep->phy);
+ 
++	if (ep->soc->wlan_power) {
++		ep->perst_gpio = devm_gpiod_get(dev, "reset", GPIOD_OUT_HIGH);
++		if (IS_ERR(ep->perst_gpio))
++			return PTR_ERR(ep->perst_gpio);
++
++		ep->wlan_en_gpio = devm_gpiod_get(dev, "wlan-en",
++						  GPIOD_OUT_LOW);
++		if (IS_ERR(ep->wlan_en_gpio))
++			return PTR_ERR(ep->wlan_en_gpio);
++	}
++
+ 	ret = devm_clk_bulk_get_all_enabled(dev, &ep->clks);
+ 	if (ret < 0)
+ 		return ret;
+ 
++	if (ep->soc->wlan_power) {
++		/*
++		 * Debug: the bus fabric gates (APB/AHB bridges, sysreg)
++		 * are not yet in the dts clocks list; enable them by ID
++		 * from the cmu_fsys1 provider so register accesses work.
++		 */
++		struct device_node *cmu;
++		unsigned int id;
++
++		cmu = of_find_compatible_node(NULL, NULL,
++					      "samsung,exynos8895-cmu-fsys1");
++		if (cmu) {
++			for (id = 5; id <= 44; id++) {
++				struct of_phandle_args args;
++				struct clk *clk;
++
++				args.np = cmu;
++				args.args_count = 1;
++				args.args[0] = id;
++				clk = of_clk_get_from_provider(&args);
++				if (!IS_ERR(clk))
++					clk_prepare_enable(clk);
++			}
++			dev_info(dev, "DBG: all fsys1 gates enabled\n");
++		}
++	}
++
+ 	ep->supplies[0].supply = "vdd18";
+ 	ep->supplies[1].supply = "vdd10";
+-	ret = devm_regulator_bulk_get(dev, ARRAY_SIZE(ep->supplies),
+-				      ep->supplies);
+-	if (ret)
+-		return ret;
++	if (ep->soc->wlan_power) {
++		/* Board rails are always-on; regulators are optional */
++		int i;
++
++		for (i = 0; i < ARRAY_SIZE(ep->supplies); i++) {
++			struct regulator *supply;
++
++			supply = devm_regulator_get_optional(dev,
++						ep->supplies[i].supply);
++			if (IS_ERR(supply)) {
++				if (PTR_ERR(supply) != -ENODEV)
++					return PTR_ERR(supply);
++				supply = NULL;
++			}
++			ep->supplies[i].consumer = supply;
++		}
++	} else {
++		ret = devm_regulator_bulk_get(dev, ARRAY_SIZE(ep->supplies),
++					      ep->supplies);
++		if (ret)
++			return ret;
++	}
+ 
+-	ret = regulator_bulk_enable(ARRAY_SIZE(ep->supplies), ep->supplies);
++	ret = exynos_pcie_enable_supplies(ep);
+ 	if (ret)
+ 		return ret;
+ 
+@@ -325,11 +710,20 @@ static int exynos_pcie_probe(struct platform_device *pdev)
+ 
+ fail_probe:
+ 	phy_exit(ep->phy);
+-	regulator_bulk_disable(ARRAY_SIZE(ep->supplies), ep->supplies);
++	exynos_pcie_disable_supplies(ep);
+ 
+ 	return ret;
+ }
+ 
++static void exynos_pcie_power_off_gpios(struct exynos_pcie *ep)
++{
++	if (!ep->soc->wlan_power)
++		return;
++
++	gpiod_set_value_cansleep(ep->perst_gpio, 1);
++	gpiod_set_value_cansleep(ep->wlan_en_gpio, 0);
++}
++
+ static void exynos_pcie_remove(struct platform_device *pdev)
+ {
+ 	struct exynos_pcie *ep = platform_get_drvdata(pdev);
+@@ -338,7 +732,8 @@ static void exynos_pcie_remove(struct platform_device *pdev)
+ 	exynos_pcie_assert_core_reset(ep);
+ 	phy_power_off(ep->phy);
+ 	phy_exit(ep->phy);
+-	regulator_bulk_disable(ARRAY_SIZE(ep->supplies), ep->supplies);
++	exynos_pcie_power_off_gpios(ep);
++	exynos_pcie_disable_supplies(ep);
+ }
+ 
+ static int exynos_pcie_suspend_noirq(struct device *dev)
+@@ -348,7 +743,8 @@ static int exynos_pcie_suspend_noirq(struct device *dev)
+ 	exynos_pcie_assert_core_reset(ep);
+ 	phy_power_off(ep->phy);
+ 	phy_exit(ep->phy);
+-	regulator_bulk_disable(ARRAY_SIZE(ep->supplies), ep->supplies);
++	exynos_pcie_power_off_gpios(ep);
++	exynos_pcie_disable_supplies(ep);
+ 
+ 	return 0;
+ }
+@@ -360,12 +756,12 @@ static int exynos_pcie_resume_noirq(struct device *dev)
+ 	struct dw_pcie_rp *pp = &pci->pp;
+ 	int ret;
+ 
+-	ret = regulator_bulk_enable(ARRAY_SIZE(ep->supplies), ep->supplies);
++	ret = exynos_pcie_enable_supplies(ep);
+ 	if (ret)
+ 		return ret;
+ 
+-	/* exynos_pcie_host_init controls ep->phy */
+-	exynos_pcie_host_init(pp);
++	/* pp->ops->init controls ep->phy */
++	pp->ops->init(pp);
+ 	dw_pcie_setup_rc(pp);
+ 	exynos_pcie_start_link(pci);
+ 	return dw_pcie_wait_for_link(pci);
+@@ -378,6 +774,8 @@ static const struct dev_pm_ops exynos_pcie_pm_ops = {
+ 
+ static const struct of_device_id exynos_pcie_of_match[] = {
+ 	{ .compatible = "samsung,exynos5433-pcie", },
++	{ .compatible = "samsung,exynos8895-pcie",
++	  .data = &exynos8895_soc_data },
+ 	{ },
+ };
+ 
+diff --git a/drivers/pci/controller/dwc/pcie-8895-tables.h b/drivers/pci/controller/dwc/pcie-8895-tables.h
+new file mode 100644
+index 000000000..17b9f81a4
+--- /dev/null
++++ b/drivers/pci/controller/dwc/pcie-8895-tables.h
+@@ -0,0 +1,2 @@
++static const u8 dbg_cmn[48] = {0x01,0xe1,0x05,0x00,0x88,0x88,0x88,0x04,0x31,0x45,0x65,0x24,0x33,0x08,0xa4,0xfc,0xc6,0x05,0xe6,0x80,0x00,0x00,0x00,0x00,0x60,0x11,0x00,0x90,0x10,0x04,0x4e,0x8e,0xc0,0xff,0x9b,0x52,0x22,0x73,0x47,0x8c,0x40,0x00,0x22,0xff,0xff,0xff,0x00,0x80};
++static const u8 dbg_trsv[156] = {0x31,0x40,0x37,0x99,0x85,0x00,0xc0,0xff,0xff,0x3f,0x8c,0xc8,0x02,0x01,0x88,0x80,0x06,0x90,0x68,0x66,0x09,0x31,0x42,0x44,0xc6,0x18,0x03,0x33,0x58,0xe7,0x20,0x22,0x80,0x38,0x05,0x85,0x00,0x00,0x00,0x7e,0x00,0x00,0x55,0x15,0xac,0xaa,0x3e,0x00,0x00,0x00,0x00,0x3f,0x00,0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x40,0x05,0x85,0xff,0x00,0x00,0x00,0x00,0x00,0x81,0x40,0x37,0x99,0x85,0x00,0xc0,0xff,0xff,0x3f,0x8c,0xc8,0x02,0x01,0x88,0x80,0x06,0x90,0x68,0x66,0x09,0x31,0x42,0x44,0xc6,0x18,0x03,0x33,0x58,0xe7,0x20,0x22,0x80,0x38,0x05,0x85,0x00,0x00,0x00,0x7e,0x00,0x00,0x55,0x15,0xac,0xaa,0x3e,0x00,0x00,0x00,0x00,0x3f,0x00,0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x40,0x05,0x85,0xff,0x00};
+diff --git a/drivers/phy/samsung/phy-exynos-pcie.c b/drivers/phy/samsung/phy-exynos-pcie.c
+index 53c9230c2..e6a7c799d 100644
+--- a/drivers/phy/samsung/phy-exynos-pcie.c
++++ b/drivers/phy/samsung/phy-exynos-pcie.c
+@@ -10,6 +10,7 @@
+ 
+ #include <linux/io.h>
+ #include <linux/mfd/syscon.h>
++#include <linux/of.h>
+ #include <linux/of_platform.h>
+ #include <linux/platform_device.h>
+ #include <linux/phy/phy.h>
+@@ -34,9 +35,19 @@
+ /* PMU PCIE PHY isolation control */
+ #define EXYNOS5433_PMU_PCIE_PHY_OFFSET		0x730
+ 
++/* PMU and sysreg offsets for Exynos8895 */
++#define EXYNOS8895_PMU_PCIE_PHY_OFFSET		0x71c
++/*
++ * The 8895 PHY uses the FSYS1 sysreg at 0x11421044; the syscon node
++ * starts at 0x11420000 hence the offsets below are relative to it.
++ */
++#define PCIE_EXYNOS8895_SYSREG_PCIE_CTRL	0x1044
++#define PCIE_EXYNOS8895_SYSREG_PHY_LANE_CTRL	0x1050
++
+ /* For Exynos pcie phy */
+ struct exynos_pcie_phy {
+ 	void __iomem *base;
++	void __iomem *pcs;
+ 	struct regmap *pmureg;
+ 	struct regmap *fsysreg;
+ };
+@@ -133,9 +144,137 @@ static const struct phy_ops exynos5433_phy_ops = {
+ 	.owner		= THIS_MODULE,
+ };
+ 
++/* Exynos8895 specific functions */
++static const u32 exynos8895_cmn_config_val[48] = {
++	0x01, 0xE1, 0x05, 0x00, 0x88, 0x88, 0x88, 0x04,
++	0x31, 0x45, 0x65, 0x24, 0x33, 0x08, 0xA4, 0xFC,
++	0xC6, 0x05, 0xE6, 0x80, 0x00, 0x00, 0x00, 0x00,
++	0x60, 0x11, 0x00, 0x90, 0x10, 0x04, 0x4E, 0x8E,
++	/* Gen1 */
++	0xC0, 0xFF, 0x9B, 0x52, 0x22, 0x73, 0x47, 0x8C,
++	0x40, 0x00, 0x22, 0xFF, 0xFF, 0xFF, 0x00, 0x80,
++};
++
++static const u32 exynos8895_trsv_config_val[156] = {
++	/* Ch0 */
++	0x31, 0x40, 0x37, 0x99, 0x85, 0x00, 0xC0, 0xFF,
++	0xFF, 0x3F, 0x8C, 0xC8, 0x02, 0x01, 0x88, 0x80,
++	0x06, 0x90, 0x68, 0x66, 0x09, 0x31, 0x42, 0x44,
++	0xC6, 0x18, 0x03, 0x33, 0x58, 0xE7, 0x20, 0x22,
++	0x80, 0x38, 0x05, 0x85, 0x00, 0x00, 0x00, 0x7E,
++	0x00, 0x00, 0x55, 0x15, 0xAC, 0xAA, 0x3E, 0x00,
++	0x00, 0x00, 0x00, 0x3F, 0x00, 0xFF, 0xFF, 0xFF,
++	0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
++	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x40,
++	0x05, 0x85, 0xFF, 0x00, 0x00, 0x00, 0x00, 0x00,
++	/* Ch1 */
++	0x81, 0x40, 0x37, 0x99, 0x85, 0x00, 0xC0, 0xFF,
++	0xFF, 0x3F, 0x8C, 0xC8, 0x02, 0x01, 0x88, 0x80,
++	0x06, 0x90, 0x68, 0x66, 0x09, 0x31, 0x42, 0x44,
++	0xC6, 0x18, 0x03, 0x33, 0x58, 0xE7, 0x20, 0x22,
++	0x80, 0x38, 0x05, 0x85, 0x00, 0x00, 0x00, 0x7E,
++	0x00, 0x00, 0x55, 0x15, 0xAC, 0xAA, 0x3E, 0x00,
++	0x00, 0x00, 0x00, 0x3F, 0x00, 0xFF, 0xFF, 0xFF,
++	0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
++	/* Gen1 */
++	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x40,
++	0x05, 0x85, 0xFF, 0x00,
++};
++
++static void exynos8895_pcie_phy_write_config(struct exynos_pcie_phy *ep)
++{
++	int i;
++
++	/* PHY Common block Setting */
++	for (i = 0; i < ARRAY_SIZE(exynos8895_cmn_config_val); i++)
++		exynos_pcie_phy_writel(ep->base, exynos8895_cmn_config_val[i],
++				       PCIE_PHY_OFFSET(i));
++
++	/* PHY Transceiver/Receiver block Setting */
++	for (i = 0; i < ARRAY_SIZE(exynos8895_trsv_config_val); i++)
++		exynos_pcie_phy_writel(ep->base, exynos8895_trsv_config_val[i],
++				       PCIE_PHY_OFFSET(0x30 + i));
++
++	/* TX amplitude control */
++	exynos_pcie_phy_writel(ep->base, 0x14, PCIE_PHY_OFFSET(0x5c));
++}
++
++static int exynos8895_pcie_phy_init(struct phy *phy)
++{
++	struct exynos_pcie_phy *ep = phy_get_drvdata(phy);
++	u32 val;
++
++	regmap_update_bits(ep->fsysreg, PCIE_EXYNOS8895_SYSREG_PCIE_CTRL,
++			   BIT(1), 0);
++
++	regmap_read(ep->fsysreg, PCIE_EXYNOS8895_SYSREG_PHY_LANE_CTRL, &val);
++	val &= ~(0xf << 4);
++	val &= ~(0xf << 2);
++	val |= (0x3 << 2);
++	val &= ~BIT(1);
++	regmap_write(ep->fsysreg, PCIE_EXYNOS8895_SYSREG_PHY_LANE_CTRL, val);
++
++	/* Take the PHY out of isolation */
++	regmap_update_bits(ep->pmureg, EXYNOS8895_PMU_PCIE_PHY_OFFSET,
++			   BIT(0), 1);
++
++	exynos8895_pcie_phy_write_config(ep);
++
++	/* TX latency */
++	writel(0x70, ep->pcs + 0xf8);
++	/* PCS refclk out control */
++	writel(0x87, ep->pcs + 0x100);
++	writel(0x50, ep->pcs + 0x104);
++
++	/* PRGM_TIMEOUT_L1SS_VAL setting */
++	val = readl(ep->pcs + 0xc);
++	val &= ~BIT(1);
++	val |= BIT(4);
++	writel(val, ep->pcs + 0xc);
++
++	return 0;
++}
++
++static int exynos8895_pcie_phy_power_on(struct phy *phy)
++{
++	struct exynos_pcie_phy *ep = phy_get_drvdata(phy);
++
++	/* Re-write the configuration with the MAC/PHY resets released */
++	exynos8895_pcie_phy_write_config(ep);
++
++	return 0;
++}
++
++static int exynos8895_pcie_phy_exit(struct phy *phy)
++{
++	struct exynos_pcie_phy *ep = phy_get_drvdata(phy);
++
++	/* Power down the transceiver and the common block */
++	exynos_pcie_phy_writel(ep->base, 0xfe, PCIE_PHY_OFFSET(0x57));
++	exynos_pcie_phy_writel(ep->base, 0xc1, PCIE_PHY_OFFSET(0x20));
++
++	/* Isolate the PHY */
++	regmap_update_bits(ep->pmureg, EXYNOS8895_PMU_PCIE_PHY_OFFSET,
++			   BIT(0), 0);
++
++	return 0;
++}
++
++static const struct phy_ops exynos8895_phy_ops = {
++	.init		= exynos8895_pcie_phy_init,
++	.power_on	= exynos8895_pcie_phy_power_on,
++	.exit		= exynos8895_pcie_phy_exit,
++	.owner		= THIS_MODULE,
++};
++
+ static const struct of_device_id exynos_pcie_phy_match[] = {
+ 	{
+ 		.compatible = "samsung,exynos5433-pcie-phy",
++		.data = &exynos5433_phy_ops,
++	},
++	{
++		.compatible = "samsung,exynos8895-pcie-phy",
++		.data = &exynos8895_phy_ops,
+ 	},
+ 	{},
+ };
+@@ -144,6 +283,7 @@ static int exynos_pcie_phy_probe(struct platform_device *pdev)
+ {
+ 	struct device *dev = &pdev->dev;
+ 	struct exynos_pcie_phy *exynos_phy;
++	const struct phy_ops *ops;
+ 	struct phy *generic_phy;
+ 	struct phy_provider *phy_provider;
+ 
+@@ -155,6 +295,12 @@ static int exynos_pcie_phy_probe(struct platform_device *pdev)
+ 	if (IS_ERR(exynos_phy->base))
+ 		return PTR_ERR(exynos_phy->base);
+ 
++	if (platform_get_resource(pdev, IORESOURCE_MEM, 1)) {
++		exynos_phy->pcs = devm_platform_ioremap_resource(pdev, 1);
++		if (IS_ERR(exynos_phy->pcs))
++			return PTR_ERR(exynos_phy->pcs);
++	}
++
+ 	exynos_phy->pmureg = syscon_regmap_lookup_by_phandle(dev->of_node,
+ 							"samsung,pmu-syscon");
+ 	if (IS_ERR(exynos_phy->pmureg)) {
+@@ -169,7 +315,11 @@ static int exynos_pcie_phy_probe(struct platform_device *pdev)
+ 		return PTR_ERR(exynos_phy->fsysreg);
+ 	}
+ 
+-	generic_phy = devm_phy_create(dev, dev->of_node, &exynos5433_phy_ops);
++	ops = of_device_get_match_data(dev);
++	if (!ops)
++		return -EINVAL;
++
++	generic_phy = devm_phy_create(dev, dev->of_node, ops);
+ 	if (IS_ERR(generic_phy)) {
+ 		dev_err(dev, "failed to create PHY\n");
+ 		return PTR_ERR(generic_phy);
+diff --git a/drivers/regulator/Kconfig b/drivers/regulator/Kconfig
+index a708fc63f..e10986bdf 100644
+--- a/drivers/regulator/Kconfig
++++ b/drivers/regulator/Kconfig
+@@ -1468,10 +1468,10 @@ config REGULATOR_S2MPA01
+ 	 via I2C bus. S2MPA01 has 10 Bucks and 26 LDO outputs.
+ 
+ config REGULATOR_S2MPS11
+-	tristate "Samsung S2MPS11/13/14/15/S2MPU02/05 voltage regulator"
++	tristate "Samsung S2MPS11/13/14/15/17/S2MPU02/05 voltage regulator"
+ 	depends on MFD_SEC_CORE || COMPILE_TEST
+ 	help
+-	 This driver supports a Samsung S2MPS11/13/14/15/S2MPU02/05 voltage
++	 This driver supports a Samsung S2MPS11/13/14/15/17/S2MPU02/05 voltage
+ 	 output regulator via I2C bus. The chip is comprised of high efficient
+ 	 Buck converters including Dual-Phase Buck converter, Buck-Boost
+ 	 converter, various LDOs.
+diff --git a/drivers/regulator/s2mps11.c b/drivers/regulator/s2mps11.c
+index 81cfd6046..52159cd67 100644
+--- a/drivers/regulator/s2mps11.c
++++ b/drivers/regulator/s2mps11.c
+@@ -23,6 +23,7 @@
+ #include <linux/mfd/samsung/s2mps13.h>
+ #include <linux/mfd/samsung/s2mps14.h>
+ #include <linux/mfd/samsung/s2mps15.h>
++#include <linux/mfd/samsung/s2mps17.h>
+ #include <linux/mfd/samsung/s2mpu02.h>
+ #include <linux/mfd/samsung/s2mpu05.h>
+ 
+@@ -1779,6 +1780,77 @@ static const struct regulator_desc s2mps15_regulators[] = {
+ 	regulator_desc_s2mps15_buck(10, s2mps15_buck_voltage_ranges2),
+ };
+ 
++/*
++ * S2MPS17 bucks: BUCK1..BUCK10 share a linear range (300mV base,
++ * 6.25mV steps, 8-bit vsel in the BxOUT register paired with the BxCTRL
++ * enable register).  Only the rails used on Exynos8895 (vdd_mif,
++ * vdd_cpucl0, vdd_cpucl1) are described.
++ */
++static const struct linear_range s2mps17_buck_voltage_ranges[] = {
++	REGULATOR_LINEAR_RANGE(S2MPS17_BUCK_MIN, 0, S2MPS17_BUCK_N_VOLTAGES - 1,
++			       S2MPS17_BUCK_STEP),
++};
++
++#define regulator_desc_s2mps17_buck(num) {				\
++	.name		= "BUCK"#num,					\
++	.id		= S2MPS17_BUCK##num,				\
++	.of_match	= of_match_ptr("BUCK"#num),			\
++	.regulators_node = of_match_ptr("regulators"),			\
++	.ops		= &s2mps15_reg_buck_ops,			\
++	.type		= REGULATOR_VOLTAGE,				\
++	.owner		= THIS_MODULE,					\
++	.linear_ranges	= s2mps17_buck_voltage_ranges,			\
++	.n_linear_ranges = ARRAY_SIZE(s2mps17_buck_voltage_ranges),	\
++	.n_voltages	= S2MPS17_BUCK_N_VOLTAGES,			\
++	.ramp_delay	= 12500,					\
++	.vsel_reg	= S2MPS17_REG_B1OUT + ((num) - 1) * 2,		\
++	.vsel_mask	= S2MPS17_BUCK_VSEL_MASK,			\
++	.enable_reg	= S2MPS17_REG_B1CTRL + ((num) - 1) * 2,	\
++	.enable_mask	= S2MPS17_ENABLE_MASK,				\
++}
++
++static const struct linear_range s2mps17_ldo34_ranges[] = {
++	REGULATOR_LINEAR_RANGE(700000, 0, 0xff, 25000),
++};
++
++static const struct linear_range s2mps17_ldo35_ranges[] = {
++	REGULATOR_LINEAR_RANGE(1800000, 0, 0xff, 25000),
++};
++
++#define S2MPS17_LDO_COMMON(_id, _name, _reg, _ranges) {			\
++	.name		= _name,					\
++	.id		= _id,						\
++	.of_match	= of_match_ptr(_name),				\
++	.regulators_node = of_match_ptr("regulators"),			\
++	.ops		= &s2mps15_reg_ldo_ops,				\
++	.type		= REGULATOR_VOLTAGE,				\
++	.owner		= THIS_MODULE,					\
++	.linear_ranges	= _ranges,					\
++	.n_linear_ranges = ARRAY_SIZE(_ranges),				\
++	.n_voltages	= 256,						\
++	.vsel_reg	= _reg,						\
++	.vsel_mask	= 0x3f,						\
++	.enable_reg	= _reg,						\
++	.enable_mask	= S2MPS17_ENABLE_MASK,				\
++}
++
++static const struct regulator_desc s2mps17_regulators[] = {
++	regulator_desc_s2mps17_buck(1),
++	regulator_desc_s2mps17_buck(2),
++	regulator_desc_s2mps17_buck(3),
++	/* vdd_g3d: vsel in B6OUT1 (paired with B6OUT2 for DVS), enable in
++	 * B6CTRL - same offsets as the linear B1..B5/B7..B10 layout.
++	 */
++	regulator_desc_s2mps17_buck(6),
++	/* tsp_io / tsp_avdd: touch screen supplies, LDO34 @0x5F / LDO35
++	 * @0x60 (single ctrl reg: vsel[5:0], enable[7:6]).
++	 */
++	S2MPS17_LDO_COMMON(S2MPS17_LDO34, "LDO34", S2MPS17_REG_L34CTRL,
++			   s2mps17_ldo34_ranges),
++	S2MPS17_LDO_COMMON(S2MPS17_LDO35, "LDO35", S2MPS17_REG_L35CTRL,
++			   s2mps17_ldo35_ranges),
++};
++
+ static int s2mps14_pmic_enable_ext_control(struct s2mps11_info *s2mps11,
+ 					   struct regulator_dev *rdev)
+ {
+@@ -2207,6 +2279,11 @@ static int s2mps11_pmic_probe(struct platform_device *pdev)
+ 		regulators = s2mps15_regulators;
+ 		BUILD_BUG_ON(ARRAY_SIZE(s2mps15_regulators) > S2MPS_REGULATOR_MAX);
+ 		break;
++	case S2MPS17X:
++		rdev_num = ARRAY_SIZE(s2mps17_regulators);
++		regulators = s2mps17_regulators;
++		BUILD_BUG_ON(ARRAY_SIZE(s2mps17_regulators) > S2MPS_REGULATOR_MAX);
++		break;
+ 	case S2MPU02:
+ 		rdev_num = ARRAY_SIZE(s2mpu02_regulators);
+ 		regulators = s2mpu02_regulators;
+@@ -2272,6 +2349,7 @@ static const struct platform_device_id s2mps11_pmic_id[] = {
+ 	{ "s2mps13-regulator", S2MPS13X},
+ 	{ "s2mps14-regulator", S2MPS14X},
+ 	{ "s2mps15-regulator", S2MPS15X},
++	{ "s2mps17-regulator", S2MPS17X},
+ 	{ "s2mpu02-regulator", S2MPU02},
+ 	{ "s2mpu05-regulator", S2MPU05},
+ 	{ },
+@@ -2291,5 +2369,5 @@ module_platform_driver(s2mps11_pmic_driver);
+ 
+ /* Module information */
+ MODULE_AUTHOR("Sangbeom Kim <sbkim73@samsung.com>");
+-MODULE_DESCRIPTION("Samsung S2MPS11/14/15/S2MPU02/05 Regulator Driver");
++MODULE_DESCRIPTION("Samsung S2MPS11/14/15/17/S2MPU02/05 Regulator Driver");
+ MODULE_LICENSE("GPL");
+diff --git a/include/dt-bindings/clock/samsung,exynos8895.h b/include/dt-bindings/clock/samsung,exynos8895.h
+index 27998c53f..945e97b1e 100644
+--- a/include/dt-bindings/clock/samsung,exynos8895.h
++++ b/include/dt-bindings/clock/samsung,exynos8895.h
+@@ -450,4 +450,47 @@
+ #define CLK_GOUT_PERIC1_USI13_I_SCLK_USI		63
+ #define CLK_GOUT_PERIC1_XIU_P_PERIC1_ACLK		64
+ 
++/* CMU_CPUCL0 */
++#define CLK_FOUT_CPUCL0_PLL		1
++#define CLK_MOUT_PLL_CPUCL0		2
++#define CLK_MOUT_CPUCL0_SWITCH_USER	3
++#define CLK_MOUT_CPUCL0_PLL		4
++#define CLK_DOUT_CPUCL0_CPU		5
++#define CLK_DOUT_CPUCL0_CMUREF		6
++#define CLK_DOUT_CPUCL0_PCLK		7
++#define CLK_DOUT_CPUCL0_PCLKDBG		8
++#define CLK_DOUT_CLUSTER0_ACLK		9
++#define CLK_DOUT_CLUSTER0_ATCLK		10
++#define CLK_GOUT_CPUCL0_CMU_CPUCL0_PCLK	11
++#define CLK_GOUT_CLUSTER0_CPU		12
++#define CLK_CLUSTER0_CLK		13
++
++/* CMU_CPUCL1 */
++#define CLK_FOUT_CPUCL1_PLL		1
++#define CLK_MOUT_PLL_CPUCL1		2
++#define CLK_MOUT_CPUCL1_SWITCH_USER	3
++#define CLK_MOUT_CPUCL1_PLL		4
++#define CLK_DOUT_CPUCL1_CPU		5
++#define CLK_DOUT_CPUCL1_CMUREF		6
++#define CLK_DOUT_CPUCL1_PCLK		7
++#define CLK_DOUT_CLUSTER1_ACLK		8
++#define CLK_DOUT_CLUSTER1_ATCLK		9
++#define CLK_DOUT_CLUSTER1_CNTCLK	10
++#define CLK_DOUT_CLUSTER1_PCLKDBG	11
++#define CLK_GOUT_CPUCL1_CMU_CPUCL1_PCLK	12
++#define CLK_GOUT_CLUSTER1_CPU		13
++#define CLK_CLUSTER1_CLK		14
++
++/* CMU_BUSCO */
++#define CLK_DOUT_BUSC_BUSP		1
++#define CLK_GOUT_BUSC_SPEEDY_PCLK	2
++
++/* CMU_G3D */
++#define CLK_FOUT_G3D_PLL		1
++#define CLK_MOUT_G3D_SWITCH_USER	2
++#define CLK_MOUT_G3D_BUSD		3
++#define CLK_DOUT_G3D_BUSP		4
++#define CLK_GOUT_G3D_CMU_PCLK		5
++#define CLK_GOUT_G3D_AGPU		6
++
+ #endif /* _DT_BINDINGS_CLOCK_EXYNOS8895_H */
+diff --git a/include/linux/mfd/samsung/core.h b/include/linux/mfd/samsung/core.h
+index 4480c6311..2dfd4214c 100644
+--- a/include/linux/mfd/samsung/core.h
++++ b/include/linux/mfd/samsung/core.h
+@@ -45,6 +45,7 @@ enum sec_device_type {
+ 	S2MPS13X,
+ 	S2MPS14X,
+ 	S2MPS15X,
++	S2MPS17X,
+ 	S2MPU02,
+ 	S2MPU05,
+ };
+diff --git a/include/linux/mfd/samsung/s2mps17.h b/include/linux/mfd/samsung/s2mps17.h
+new file mode 100644
+index 000000000..cee1e63f9
+--- /dev/null
++++ b/include/linux/mfd/samsung/s2mps17.h
+@@ -0,0 +1,107 @@
++/* SPDX-License-Identifier: GPL-2.0 */
++/*
++ * s2mps17.h - Register definitions for the Samsung S2MPS17 PMIC
++ *
++ * The S2MPS17 is reachable over a Samsung SPEEDY bus and exposes several
++ * register pages, selected by the slave address:
++ *   0x00: top level (chip id, interrupt source)
++ *   0x01: PMIC (bucks, LDOs, interrupts) - the page modelled here
++ *   0x02: RTC
++ *   0x0f: debug
++ *
++ * Copyright (C) 2026 Linux Exynos community
++ */
++
++#ifndef __LINUX_MFD_S2MPS17_H
++#define __LINUX_MFD_S2MPS17_H
++
++/* PMIC page (slave address 0x01) registers */
++#define S2MPS17_REG_INT1		0x00
++#define S2MPS17_REG_INT2		0x01
++#define S2MPS17_REG_INT3		0x02
++#define S2MPS17_REG_INT4		0x03
++#define S2MPS17_REG_INT5		0x04
++#define S2MPS17_REG_INT6		0x05
++#define S2MPS17_REG_INT1M		0x06
++#define S2MPS17_REG_INT2M		0x07
++#define S2MPS17_REG_INT3M		0x08
++#define S2MPS17_REG_INT4M		0x09
++#define S2MPS17_REG_INT5M		0x0A
++#define S2MPS17_REG_INT6M		0x0B
++
++#define S2MPS17_REG_B1CTRL		0x19
++#define S2MPS17_REG_B1OUT			0x1A
++#define S2MPS17_REG_L34CTRL		0x5F
++#define S2MPS17_REG_L35CTRL		0x60
++#define S2MPS17_REG_B2CTRL		0x1B
++#define S2MPS17_REG_B2OUT			0x1C
++#define S2MPS17_REG_B3CTRL		0x1D
++#define S2MPS17_REG_B3OUT			0x1E
++#define S2MPS17_REG_B4CTRL		0x1F
++#define S2MPS17_REG_B4OUT			0x20
++#define S2MPS17_REG_B5CTRL		0x21
++#define S2MPS17_REG_B5OUT			0x22
++#define S2MPS17_REG_B6CTRL		0x23
++#define S2MPS17_REG_B6OUT1		0x24
++#define S2MPS17_REG_B6OUT2		0x25
++#define S2MPS17_REG_B7CTRL		0x26
++#define S2MPS17_REG_B7OUT			0x27
++#define S2MPS17_REG_B8CTRL		0x28
++#define S2MPS17_REG_B8OUT			0x29
++#define S2MPS17_REG_B9CTRL		0x2A
++#define S2MPS17_REG_B9OUT			0x2B
++#define S2MPS17_REG_B10CTRL		0x2C
++#define S2MPS17_REG_B10OUT		0x2D
++#define S2MPS17_REG_B11CTRL		0x2E
++#define S2MPS17_REG_B11OUT		0x2F
++#define S2MPS17_REG_B12CTRL		0x30
++#define S2MPS17_REG_B12OUT1		0x31
++
++/* Voltage configuration: all bucks covered here share min 300 mV,
++ * 6.25 mV step, 8-bit vsel.
++ */
++#define S2MPS17_BUCK_MIN		300000
++#define S2MPS17_BUCK_STEP		6250
++#define S2MPS17_BUCK_N_VOLTAGES		256
++#define S2MPS17_BUCK_VSEL_MASK		0xFF
++
++#define S2MPS17_ENABLE_SHIFT		6
++#define S2MPS17_ENABLE_MASK		(0x03 << S2MPS17_ENABLE_SHIFT)
++
++enum s2mps17_regulators {
++	S2MPS17_BUCK1,
++	S2MPS17_BUCK2,
++	S2MPS17_BUCK3,
++	S2MPS17_BUCK6,
++	S2MPS17_LDO34,
++	S2MPS17_LDO35,
++};
++
++/* Interrupts of the PMIC page; INT1..INT3 are the general purpose ones. */
++enum s2mps17_irq {
++	S2MPS17_IRQ_PWRONR,
++	S2MPS17_IRQ_PWRONF,
++	S2MPS17_IRQ_JIGONBF,
++	S2MPS17_IRQ_JIGONBR,
++	S2MPS17_IRQ_ACOKBF,
++	S2MPS17_IRQ_ACOKBR,
++	S2MPS17_IRQ_PWRON1S,
++	S2MPS17_IRQ_MRB,
++
++	S2MPS17_IRQ_RTC60S,
++	S2MPS17_IRQ_RTCA1,
++	S2MPS17_IRQ_RTCA0,
++	S2MPS17_IRQ_SMPL,
++	S2MPS17_IRQ_RTC1S,
++	S2MPS17_IRQ_WTSR,
++	S2MPS17_IRQ_WRSTB,
++
++	S2MPS17_IRQ_INT120C,
++	S2MPS17_IRQ_INT140C,
++	S2MPS17_IRQ_TSD,
++	S2MPS17_IRQ_ADCDONE,
++
++	S2MPS17_IRQ_NR,
++};
++
++#endif /* __LINUX_MFD_S2MPS17_H */

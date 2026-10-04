@@ -1,0 +1,26 @@
+#!/sbin/openrc-run
+# greatlte: bring up the Mali-G71 (panfrost) before the display manager.
+# The G3D clock/PLL bootstrap is runtime-steppable via debugfs; the GPU
+# runs from the 800 MHz CMU_TOP switch (the G3D PLL at 0x120 is not
+# writable on this silicon - the bootloader's own PLL config lives at
+# 0x140 and is already locked).
+depend() {
+	before tinydm
+	after sysfs
+}
+
+start() {
+	ebegin "Bringing up Mali-G71 (panfrost)"
+	grep -q debugfs /proc/mounts || mount -t debugfs none /sys/kernel/debug
+	for s in 2 3 6; do
+		echo $s > /sys/kernel/debug/g3d_step 2>/dev/null
+	done
+	echo 13900000.gpu > /sys/bus/platform/drivers/panfrost/unbind 2>/dev/null
+	echo 13900000.gpu > /sys/bus/platform/drivers/panfrost/bind 2>/dev/null
+	sleep 2
+	if [ -e /dev/dri/renderD128 ]; then
+		eend 0
+	else
+		eend 1 "panfrost not up"
+	fi
+}

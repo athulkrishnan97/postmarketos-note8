@@ -1,0 +1,274 @@
+diff --git a/arch/arm64/boot/dts/exynos/Makefile b/arch/arm64/boot/dts/exynos/Makefile
+index bcca63136..e2c5fbc88 100644
+--- a/arch/arm64/boot/dts/exynos/Makefile
++++ b/arch/arm64/boot/dts/exynos/Makefile
+@@ -13,6 +13,7 @@ dtb-$(CONFIG_ARCH_EXYNOS) += \
+ 	exynos7885-jackpotlte.dtb	\
+ 	exynos850-e850-96.dtb		\
+ 	exynos8895-dreamlte.dtb		\
++	exynos8895-greatlte.dtb		\
+ 	exynos9810-starlte.dtb		\
+ 	exynos990-c1s.dtb		\
+ 	exynos990-r8s.dtb               \
+diff --git a/arch/arm64/boot/dts/exynos/exynos8895-greatlte.dts b/arch/arm64/boot/dts/exynos/exynos8895-greatlte.dts
+new file mode 100644
+index 000000000..cbc4fe1c9
+--- /dev/null
++++ b/arch/arm64/boot/dts/exynos/exynos8895-greatlte.dts
+@@ -0,0 +1,256 @@
++// SPDX-License-Identifier: GPL-2.0 OR BSD-3-Clause
++/*
++ * Samsung Galaxy Note 8 (greatlte/SM-N950F) device tree source
++ *
++ * Copyright (c) 2026, The postmarketOS project
++ */
++
++/dts-v1/;
++#include "exynos8895.dtsi"
++#include <dt-bindings/gpio/gpio.h>
++#include <dt-bindings/input/input.h>
++#include <dt-bindings/interrupt-controller/irq.h>
++#include <dt-bindings/soc/samsung,exynos-usi.h>
++
++/ {
++	model = "Samsung Galaxy Note 8 (SM-N950F)";
++	compatible = "samsung,greatlte", "samsung,exynos8895";
++	chassis-type = "handset";
++
++	aliases {
++		mmc0 = &mmc;
++	};
++
++	chosen {
++		bootargs = "fbcon=font:TER16x32";
++		#address-cells = <2>;
++		#size-cells = <1>;
++		ranges;
++
++		framebuffer: framebuffer@cc000000 {
++			compatible = "simple-framebuffer";
++			reg = <0 0xcc000000 (1440 * 2960 * 4)>;
++			width = <1440>;
++			height = <2960>;
++			stride = <(1440 * 4)>;
++			format = "a8r8g8b8";
++		};
++	};
++
++	memory@80000000 {
++		device_type = "memory";
++		reg = <0x0 0x80000000 0x3c800000>,
++		      <0x0 0xc0000000 0x40000000>,
++		      <0x8 0x80000000 0x80000000>;
++	};
++
++	reserved-memory {
++		#address-cells = <2>;
++		#size-cells = <1>;
++		ranges;
++
++		ramoops@92000000 {
++			compatible = "ramoops";
++			reg = <0 0x92000000 0x8000>;
++			record-size = <0x4000>;
++			console-size = <0x4000>;
++		};
++
++		cont_splash_mem: framebuffer@cc000000 {
++			reg = <0 0xcc000000 (1440 * 2960 * 4)>;
++			no-map;
++		};
++	};
++
++	gpio-keys {
++		compatible = "gpio-keys";
++
++		pinctrl-0 = <&key_power &key_voldown &key_volup &key_wink>;
++		pinctrl-names = "default";
++
++		power-key {
++			label = "Power";
++			linux,code = <KEY_POWER>;
++			gpios = <&gpa2 4 GPIO_ACTIVE_LOW>;
++			wakeup-source;
++		};
++
++		voldown-key {
++			label = "Volume Down";
++			linux,code = <KEY_VOLUMEDOWN>;
++			gpios = <&gpa0 4 GPIO_ACTIVE_LOW>;
++		};
++
++		volup-key {
++			label = "Volume Up";
++			linux,code = <KEY_VOLUMEUP>;
++			gpios = <&gpa0 3 GPIO_ACTIVE_LOW>;
++		};
++
++		/* Typically used for Bixby. Map it as a camera button for now */
++		wink-key {
++			label = "Camera";
++			linux,code = <KEY_CAMERA>;
++			gpios = <&gpa0 6 GPIO_ACTIVE_LOW>;
++			wakeup-source;
++		};
++	};
++
++	/* TODO: Remove once PMIC is implemented  */
++	reg_placeholder: regulator-0 {
++		compatible = "regulator-fixed";
++		regulator-name = "reg-placeholder";
++	};
++
++	/* MicroSD slot power enable (gpb1-1), active high */
++	tflash_pwr: regulator-tflash {
++		compatible = "regulator-fixed";
++		regulator-name = "tflash_en";
++		regulator-min-microvolt = <3300000>;
++		regulator-max-microvolt = <3300000>;
++		gpio = <&gpb1 1 GPIO_ACTIVE_HIGH>;
++		enable-active-high;
++		regulator-always-on;
++		startup-delay-us = <100000>;
++		pinctrl-names = "default";
++		pinctrl-0 = <&sd2_tflash_en>;
++	};
++
++	/* Bluetooth chip power enable (BT_EN, gpj1-7), active high */
++	regulator-bt {
++		compatible = "regulator-fixed";
++		regulator-name = "bt-pwr";
++		regulator-min-microvolt = <3300000>;
++		regulator-max-microvolt = <3300000>;
++		gpio = <&gpj1 7 GPIO_ACTIVE_HIGH>;
++		enable-active-high;
++		regulator-always-on;
++		startup-delay-us = <200000>;
++		pinctrl-names = "default";
++		pinctrl-0 = <&bt_en>;
++	};
++};
++
++&hsi2c_23 {
++	status = "okay";
++
++	touchscreen@48 {
++		compatible = "samsung,s6sy761";
++		reg = <0x48>;
++
++		avdd-supply = <&ldo35_reg>;
++		vdd-supply = <&ldo34_reg>;
++
++		interrupt-parent = <&gpa1>;
++		interrupts = <0 IRQ_TYPE_LEVEL_LOW>;
++
++		pinctrl-0 = <&ts_int>;
++		pinctrl-names = "default";
++	};
++};
++
++&oscclk {
++	clock-frequency = <26000000>;
++};
++
++&mmc {
++	pinctrl-0 = <&sd2_clk &sd2_cmd &sd2_bus1 &sd2_bus4 &sd2_cd>;
++	pinctrl-names = "default";
++
++	bus-width = <4>;
++	card-detect-delay = <200>;
++	cd-gpios = <&gpa1 5 GPIO_ACTIVE_LOW>;
++	clock-frequency = <800000000>;
++	disable-wp;
++	sd-uhs-sdr50;
++	sd-uhs-sdr104;
++
++	vmmc-supply = <&tflash_pwr>;
++
++	samsung,dw-mshc-ciu-div = <3>;
++	samsung,dw-mshc-ddr-timing = <1 2>;
++	samsung,dw-mshc-sdr-timing = <0 3>;
++
++	status = "okay";
++};
++
++&pinctrl_alive {
++	key_power: key-power-pins {
++		samsung,pins = "gpa2-4";
++		samsung,pin-function = <EXYNOS_PIN_FUNC_EINT>;
++		samsung,pin-pud = <EXYNOS_PIN_PULL_NONE>;
++		samsung,pin-drv = <EXYNOS7_PIN_DRV_LV1>;
++	};
++
++	key_voldown: key-voldown-pins {
++		samsung,pins = "gpa0-4";
++		samsung,pin-function = <EXYNOS_PIN_FUNC_EINT>;
++		samsung,pin-pud = <EXYNOS_PIN_PULL_NONE>;
++		samsung,pin-drv = <EXYNOS7_PIN_DRV_LV1>;
++	};
++
++	key_volup: key-volup-pins {
++		samsung,pins = "gpa0-3";
++		samsung,pin-function = <EXYNOS_PIN_FUNC_EINT>;
++		samsung,pin-pud = <EXYNOS_PIN_PULL_NONE>;
++		samsung,pin-drv = <EXYNOS7_PIN_DRV_LV1>;
++	};
++
++	key_wink: key-wink-pins {
++		samsung,pins = "gpa0-6";
++		samsung,pin-function = <EXYNOS_PIN_FUNC_EINT>;
++		samsung,pin-pud = <EXYNOS_PIN_PULL_NONE>;
++		samsung,pin-drv = <EXYNOS7_PIN_DRV_LV1>;
++	};
++
++	sd2_cd: sd2-cd-pins {
++		samsung,pins = "gpa1-5";
++		samsung,pin-function = <EXYNOS_PIN_FUNC_EINT>;
++		samsung,pin-pud = <EXYNOS_PIN_PULL_UP>;
++		samsung,pin-drv = <EXYNOS7_PIN_DRV_LV4>;
++	};
++
++	ts_int: ts-int-pins {
++		samsung,pins = "gpa1-0";
++		samsung,pin-function = <EXYNOS_PIN_FUNC_EINT>;
++		samsung,pin-pud = <EXYNOS_PIN_PULL_NONE>;
++		samsung,pin-drv = <EXYNOS7_PIN_DRV_LV1>;
++	};
++};
++
++&pinctrl_peric0 {
++	sd2_tflash_en: sd2-tflash-en-pins {
++		samsung,pins = "gpb1-1";
++		samsung,pin-function = <EXYNOS_PIN_FUNC_OUTPUT>;
++		samsung,pin-pud = <EXYNOS_PIN_PULL_NONE>;
++		samsung,pin-drv = <EXYNOS7_PIN_DRV_LV4>;
++	};
++};
++
++&usi9 {
++	samsung,mode = <USI_MODE_I2C0_1>;
++
++	status = "okay";
++};
++
++/* Dedicated Bluetooth UART (UART_BT) */
++&serial_1 {
++	status = "okay";
++};
++
++&gpj1 {
++	bt-wake-hog {
++		gpio-hog;
++		gpios = <4 GPIO_ACTIVE_HIGH>;
++		output-high;
++		line-name = "bt-wake";
++	};
++};
++
++&pcie0 {
++	status = "okay";
++};
++
++&pcie_phy0 {
++	status = "okay";
++};
