@@ -3,7 +3,8 @@
 Mainline Linux (7.0.0-rc1) running on the Exynos 8895 Samsung Galaxy Note 8,
 with a fully open-source boot chain, a **native display driver** (DECON + DSI +
 DSC for the S6E3HA6 AMOLED panel), a GPU-composited desktop on the Mali-G71
-(panfrost, 546 MHz), CPU frequency scaling with real voltage control, WiFi,
+(panfrost, 546 MHz), CPU frequency scaling with real voltage control, the
+**internal UFS storage** (rootfs on `userdata`, no microSD needed), WiFi,
 Bluetooth PAN networking, and KDE Plasma Mobile with a working touchscreen.
 
 This repository contains everything needed to build and install it:
@@ -11,8 +12,8 @@ device kernel packages (with all our mainline driver work as patch files),
 the uniLoader board files, and the phone-side runtime addons.
 
 > Status: **daily-driver-ish for tinkering**. See "What works / What doesn't"
-> below — microSD stability under heavy reads, brightness control and the boot
-> console are the known limitations; internal (UFS) storage is in progress.
+> below — web browsers freezing the phone at start-up, brightness control and
+> the boot console are the known limitations.
 
 ---
 
@@ -20,7 +21,7 @@ the uniLoader board files, and the phone-side runtime addons.
 
 | Feature | Details |
 |---|---|
-| Boot | Samsung bootloader → uniLoader → mainline kernel → postmarketOS rootfs from microSD |
+| Boot | Samsung bootloader → uniLoader → mainline kernel → postmarketOS rootfs from **internal UFS** (or microSD) |
 | Display | Native KMS: **DECON_f → dual DSC encoders → DSI (4 lanes) → S6E3HA6** AMOLED, 1440×2960, command mode with real vblank (59 Hz panel refresh), zero-copy GPU scan-out (PRIME) |
 | CPU frequency scaling | Both clusters, 455 MHz – 1.7 GHz (big) / 455 MHz – 1.69 GHz (little), with **voltage scaling** via the S2MPS17 PMIC over a ported SPEEDY bus driver. Cluster clocks/rails and voltages match the phone's ECT tables (an earlier cluster swap undervolted the A53s). |
 | GPU | Mali-G71 MP20 via mainline **panfrost** at **546 MHz** (stock max, ECT voltage + margin), Mesa kmsro pairs it with the display; kmscube 60 fps |
@@ -29,13 +30,15 @@ the uniLoader board files, and the phone-side runtime addons.
 | Bluetooth | BCM4347B0 UART, works (incl. a BT-PAN IP link to a laptop) |
 | GUI | KDE Plasma Mobile (tinydm autologin), GPU-composited, ~24–30 fps; output scale 3 |
 | SSH | key-based, over WiFi or the Bluetooth PAN link |
-| Storage | microSD rootfs (28 GB) at UHS SDR50, 2 GB swapfile |
+| Internal storage | Toshiba THGAF4G9N4LBAIRA 64 GB **UFS 2.1**, mainline `ufs-exynos` with an 8895 variant: **HS-G3 rate B ×2 lanes, ~600 MB/s**. Root on `USERDATA` (sda21, 52.7 GB), `/boot` on `CACHE` (sda16). All 21 GPT partitions + boot/RPMB LUNs visible. |
+| microSD | Optional now; works at UHS SDR50 (heavy reads can still error, see below) |
 
 ## What doesn't (yet)
 
 | Feature | Why | Path forward |
 |---|---|---|
-| microSD under heavy reads | No `vqmmc` (S2MPS17 LDO2) yet, so UHS signalling is never switched to 1.8 V: sustained reads (e.g. launching a browser) can hit command timeouts / I/O errors and freeze the phone. The card itself is fine. | Add LDO2 + downstream per-mode sample timings; or move the rootfs to internal UFS (in progress). |
+| Web browsers (Firefox, Angelfish) | Opening a browser window hard-freezes the whole phone within seconds, before any page loads — no panic, no lockup report, the kernel log just stops. Happens from internal UFS too (so it is **not** the microSD), at 260 or 546 MHz GPU, with Firefox in software rendering and under X11. Headless Firefox, glmark2, CPU/SIMD/memory stress, namespace churn and reading all of /sys do **not** reproduce it. | Under investigation — see docs/BRINGUP.md §17. |
+| microSD under heavy reads | No `vqmmc` (S2MPS17 LDO2) yet, so UHS signalling is never switched to 1.8 V: sustained reads can hit command timeouts / I/O errors. Irrelevant when booting from UFS. | Add LDO2 + downstream per-mode sample timings. |
 | Brightness control | The panel has no DCS 0x51; Samsung dims with AOR (0xB1) + gamma/ELVSS tables, and raw writes mid-frame glitch. | A frame-synchronised backlight device in the panel driver. |
 | Boot console on the panel | Enabling fbdev emulation (fbcon) crashes early boot; the screen stays black until Plasma starts. | Debug the fbdev path against the DECON driver. |
 | Desktop smoothness | Plasma runs ~24–30 fps: plasmashell + KWin GPU time per frame misses the 16.7 ms budget at 546 MHz. | Profile; GPU DVFS above 546 MHz is disabled in stock too. |
@@ -45,7 +48,6 @@ the uniLoader board files, and the phone-side runtime addons.
 | USB to a PC | The dwc3 gadget runs on `dummy_udc` (virtual loopback) — no real USB data path until the dwc3/PHY work lands. | Port the dwc3 + USB-C role-switch setup. |
 | S Pen (wacom w90xx) / hw keys | No mainline driver. | Port the downstream wacom_i2c-style driver. |
 | Full 6 GB RAM | Kernel sees 3.8 GB (memory map). | Fix the dts memory nodes. |
-| Internal UFS storage | Port in progress (controller responds; link start-up not yet working); not in the package. | Finish the ufs-exynos 8895 variant, then move the rootfs to `userdata`. |
 
 ## Repository layout
 
@@ -55,7 +57,8 @@ aports/                 postmarketOS device packages (build these with pmbootstr
                                    greatlte-dts.patch, exynos8895-pcie-wifi.patch
                                    (PCIe/brcmfmac, cpufreq+PMIC, GPU, touch),
                                    exynos8895-display.patch (DECON/DSI/panel,
-                                   GPU clock, CPU cluster fix, touch fix)
+                                   GPU clock, CPU cluster fix, touch fix),
+                                   exynos8895-ufs.patch (internal UFS storage)
   device-samsung-greatlte/         device package (initramfs hooks, device info)
   uniloader-samsung-greatlte/      bootloader package
 uniloader-files/        our uniLoader board port (2 files; applied onto upstream uniLoader)
@@ -139,6 +142,30 @@ pmbootstrap install --sdcard /dev/sdX   # your microSD; wipes it
 #   firmware/*            -> /lib/firmware/brcm/  (brcmfmac4361-pcie.* names;
 #                            see docs/BRINGUP.md for the exact names)
 ```
+
+### 3b. Moving the rootfs to internal UFS (optional, wipes Android data)
+
+The kernel finds the UFS partitions itself (the UFS host + PHY are built in).
+**This erases Android's `USERDATA` and `CACHE`**; `SYSTEM`, `BOOT` and
+`RECOVERY` are untouched, so TWRP keeps working.
+
+```sh
+# The UFS logical block size is 4 KiB: filesystems on it need >= 4K blocks.
+# A byte copy of the 1K-block microSD boot partition will NOT mount.
+mkfs.ext2 -b 4096 -L pmOS_ufs_boot /dev/sda16   # CACHE,    600 MB
+mkfs.ext4         -L pmOS_ufs_root /dev/sda21   # USERDATA, 53.7 GB
+# copy the microSD root and /boot onto them (we built the images on the
+# laptop and wrote them from TWRP: adb exec-in "dd of=/dev/block/sda21"),
+# then point the new root's /etc/fstab at the new UUIDs (blkid).
+```
+
+Then make the initramfs choose them over any microSD by adding
+`pmos_boot_uuid=<sda16 UUID> pmos_root_uuid=<sda21 UUID>` to `bootargs` in
+`exynos8895-greatlte.dts` before building the boot image. To boot the microSD
+again, flash an image built without those two arguments. There is no RTC
+driver yet, so the clock starts at 1970; a NetworkManager dispatcher hook
+that restarts chronyd on connect (`rootfs-addons/etc-NetworkManager-dispatcher.d/`)
+fixes the time once WiFi is up.
 
 ### 4. Flash
 

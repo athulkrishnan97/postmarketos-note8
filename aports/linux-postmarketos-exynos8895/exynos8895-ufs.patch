@@ -1,0 +1,774 @@
+diff --git a/arch/arm64/boot/dts/exynos/exynos8895-greatlte.dts b/arch/arm64/boot/dts/exynos/exynos8895-greatlte.dts
+index 57ee5b254..5e84e6fbd 100644
+--- a/arch/arm64/boot/dts/exynos/exynos8895-greatlte.dts
++++ b/arch/arm64/boot/dts/exynos/exynos8895-greatlte.dts
+@@ -32,6 +32,17 @@ memory@80000000 {
+ 		      <0x8 0x80000000 0x80000000>;
+ 	};
+ 
++	/* UFS device VCC, switched by the AP (downstream ufs_fixed_vcc) */
++	ufs_vcc: regulator-ufs-vcc {
++		compatible = "regulator-fixed";
++		regulator-name = "ufs-vcc";
++		gpio = <&gpg0 0 GPIO_ACTIVE_HIGH>;
++		enable-active-high;
++		regulator-boot-on;
++		/* downstream treats UFS VCC as fixed: never power-cycle the device */
++		regulator-always-on;
++	};
++
+ 	reserved-memory {
+ 		#address-cells = <2>;
+ 		#size-cells = <1>;
+@@ -142,6 +153,15 @@ touchscreen@48 {
+ 	};
+ };
+ 
++&ufs {
++	vcc-supply = <&ufs_vcc>;
++	status = "okay";
++};
++
++&ufs_phy {
++	status = "okay";
++};
++
+ &oscclk {
+ 	clock-frequency = <26000000>;
+ };
+diff --git a/arch/arm64/boot/dts/exynos/exynos8895.dtsi b/arch/arm64/boot/dts/exynos/exynos8895.dtsi
+index 9fc441e53..4b6010bd5 100644
+--- a/arch/arm64/boot/dts/exynos/exynos8895.dtsi
++++ b/arch/arm64/boot/dts/exynos/exynos8895.dtsi
+@@ -1398,6 +1398,59 @@ cmu_fsys0: clock-controller@11000000 {
+ 				      "ufs", "usbdrd30";
+ 		};
+ 
++		ufs: ufs@11120000 {
++			compatible = "samsung,exynos8895-ufs";
++			reg = <0x11120000 0x200>,
++			      <0x11121100 0x200>,
++			      <0x11110000 0x8000>,
++			      <0x11130000 0x100>,
++			      <0x11124000 0x800>;
++			reg-names = "hci", "vs_hci", "unipro", "ufsp", "pma";
++			interrupts = <GIC_SPI 334 IRQ_TYPE_LEVEL_HIGH>;
++			/*
++			 * Besides the UFS gates, the FSYS0 bus path (AHB bridge,
++			 * bus reset sync, PMU/BTM) must be clocked or the HCI
++			 * reads as zero; Linux would otherwise gate them as
++			 * unused.  The XIUs are already kept on by other users;
++			 * listing them here let a failed probe switch them off,
++			 * which hung the system.
++			 */
++			clocks = <&cmu_fsys0 CLK_GOUT_FSYS0_UFS_EMBD_I_ACLK>,
++				 <&cmu_fsys0 CLK_GOUT_FSYS0_UFS_EMBD_I_CLK_UNIPRO>,
++				 <&cmu_fsys0 CLK_GOUT_FSYS0_UFS_EMBD_I_FMP_CLK>,
++				 <&cmu_fsys0 CLK_GOUT_FSYS0_AHBBR_FSYS0_HCLK>,
++				 <&cmu_fsys0 CLK_GOUT_FSYS0_RSTNSYNC_CLK_FSYS0_BUS_CLK>,
++				 <&cmu_fsys0 CLK_GOUT_FSYS0_PMU_FSYS0_PCLK>,
++				 <&cmu_fsys0 CLK_GOUT_FSYS0_BTM_FSYS0_I_ACLK>,
++				 <&cmu_fsys0 CLK_GOUT_FSYS0_BTM_FSYS0_I_PCLK>;
++			clock-names = "core_clk", "sclk_unipro_main", "fmp_clk",
++				      "ahbbr_hclk", "bus_rstnsync", "pmu_pclk",
++				      "btm_aclk", "btm_pclk";
++			freq-table-hz = <0 0>, <0 0>, <0 0>, <0 0>,
++					<0 0>, <0 0>, <0 0>, <0 0>;
++			pinctrl-0 = <&ufs_rst_n &ufs_refclk_out>;
++			pinctrl-names = "default";
++			phys = <&ufs_phy>;
++			phy-names = "ufs-phy";
++			samsung,pmu-syscon = <&pmu_system_controller>;
++			samsung,sysreg = <&syscon_fsys0 0x700>;
++			/*
++			 * Not dma-coherent: with the IO-coherency bits set the
++			 * controller read stale descriptors (NOP OUT never
++			 * completed); the bootloader leaves them clear too.
++			 */
++			status = "disabled";
++		};
++
++		ufs_phy: phy@11124000 {
++			compatible = "samsung,exynos8895-ufs-phy";
++			reg = <0x11124000 0x800>;
++			reg-names = "phy-pma";
++			samsung,pmu-syscon = <&pmu_system_controller>;
++			#phy-cells = <0>;
++			status = "disabled";
++		};
++
+ 		syscon_fsys0: syscon@11020000 {
+ 			compatible = "samsung,exynos8895-fsys0-sysreg", "syscon";
+ 			reg = <0x11020000 0x2000>;
+diff --git a/drivers/phy/samsung/Makefile b/drivers/phy/samsung/Makefile
+index 342682638..4b017dbe7 100644
+--- a/drivers/phy/samsung/Makefile
++++ b/drivers/phy/samsung/Makefile
+@@ -6,6 +6,7 @@ obj-$(CONFIG_PHY_SAMSUNG_UFS)		+= phy-exynos-ufs.o
+ phy-exynos-ufs-y			+= phy-gs101-ufs.o
+ phy-exynos-ufs-y			+= phy-samsung-ufs.o
+ phy-exynos-ufs-y			+= phy-exynos7-ufs.o
++phy-exynos-ufs-y			+= phy-exynos8895-ufs.o
+ phy-exynos-ufs-y			+= phy-exynosautov9-ufs.o
+ phy-exynos-ufs-y			+= phy-exynosautov920-ufs.o
+ phy-exynos-ufs-y			+= phy-fsd-ufs.o
+diff --git a/drivers/phy/samsung/phy-exynos8895-ufs.c b/drivers/phy/samsung/phy-exynos8895-ufs.c
+new file mode 100644
+index 000000000..fe9c5b854
+--- /dev/null
++++ b/drivers/phy/samsung/phy-exynos8895-ufs.c
+@@ -0,0 +1,25 @@
++// SPDX-License-Identifier: GPL-2.0-only
++/*
++ * UFS PHY driver data for Samsung Exynos 8895
++ *
++ * The M-PHY PMA/PCS setup for this SoC is interleaved with UniPro
++ * attribute writes and is applied by the ufs-exynos host driver from the
++ * downstream tables, which also releases the PHY isolation once at probe.
++ * This entry only provides the PHY to the host, with no calibration and a
++ * zero isolation mask so the PMA configuration survives link restarts.
++ */
++
++#include "phy-samsung-ufs.h"
++
++#define EXYNOS8895_EMBEDDED_COMBO_PHY_CTRL	0x724
++
++static const struct samsung_ufs_phy_cfg *exynos8895_ufs_phy_cfgs[CFG_TAG_MAX];
++
++const struct samsung_ufs_phy_drvdata exynos8895_ufs_phy = {
++	.cfgs = exynos8895_ufs_phy_cfgs,
++	.isol = {
++		.offset = EXYNOS8895_EMBEDDED_COMBO_PHY_CTRL,
++		.mask = 0,
++		.en = 0,
++	},
++};
+diff --git a/drivers/phy/samsung/phy-samsung-ufs.c b/drivers/phy/samsung/phy-samsung-ufs.c
+index ee665f26c..bda597014 100644
+--- a/drivers/phy/samsung/phy-samsung-ufs.c
++++ b/drivers/phy/samsung/phy-samsung-ufs.c
+@@ -360,6 +360,9 @@ static const struct of_device_id samsung_ufs_phy_match[] = {
+ 	}, {
+ 		.compatible = "samsung,exynos7-ufs-phy",
+ 		.data = &exynos7_ufs_phy,
++	}, {
++		.compatible = "samsung,exynos8895-ufs-phy",
++		.data = &exynos8895_ufs_phy,
+ 	}, {
+ 		.compatible = "samsung,exynosautov9-ufs-phy",
+ 		.data = &exynosautov9_ufs_phy,
+diff --git a/drivers/phy/samsung/phy-samsung-ufs.h b/drivers/phy/samsung/phy-samsung-ufs.h
+index f2c2e744e..89465f5b4 100644
+--- a/drivers/phy/samsung/phy-samsung-ufs.h
++++ b/drivers/phy/samsung/phy-samsung-ufs.h
+@@ -155,6 +155,7 @@ void samsung_ufs_phy_config(struct samsung_ufs_phy *phy,
+ 			    const struct samsung_ufs_phy_cfg *cfg, u8 lane);
+ 
+ extern const struct samsung_ufs_phy_drvdata exynos7_ufs_phy;
++extern const struct samsung_ufs_phy_drvdata exynos8895_ufs_phy;
+ extern const struct samsung_ufs_phy_drvdata exynosautov9_ufs_phy;
+ extern const struct samsung_ufs_phy_drvdata exynosautov920_ufs_phy;
+ extern const struct samsung_ufs_phy_drvdata fsd_ufs_phy;
+diff --git a/drivers/ufs/core/ufshcd.c b/drivers/ufs/core/ufshcd.c
+index 847b55789..731d1453d 100644
+--- a/drivers/ufs/core/ufshcd.c
++++ b/drivers/ufs/core/ufshcd.c
+@@ -4364,7 +4364,10 @@ static int ufshcd_uic_pwr_ctrl(struct ufs_hba *hba, struct uic_command *cmd)
+ 	}
+ 
+ check_upmcrs:
+-	status = ufshcd_get_upmcrs(hba);
++	if (hba->vops && hba->vops->get_upmcrs)
++		status = hba->vops->get_upmcrs(hba, cmd);
++	else
++		status = ufshcd_get_upmcrs(hba);
+ 	if (status != PWR_LOCAL) {
+ 		dev_err(hba->dev,
+ 			"pwr ctrl cmd 0x%x failed, host upmcrs:0x%x\n",
+diff --git a/drivers/ufs/host/ufs-exynos.c b/drivers/ufs/host/ufs-exynos.c
+index 76fee3a79..671ff6ef9 100644
+--- a/drivers/ufs/host/ufs-exynos.c
++++ b/drivers/ufs/host/ufs-exynos.c
+@@ -423,6 +423,384 @@ static int exynos7_ufs_post_pwr_change(struct exynos_ufs *ufs,
+  * - Before host controller S/W reset
+  * - Access to UFS protector's register
+  */
++/*
++ * Exynos 8895 (UFS host revision 0004).  The UniPro/M-PHY configuration
++ * is the downstream Samsung table set (phy-init, post-phy-init and the
++ * per-power-mode calibration), applied the way the downstream driver's
++ * exynos_ufs_config_uic() does.  PMA registers are byte addressed with a
++ * 0x140 byte stride per lane.
++ */
++#define SMC_CMD_FMP_SECURITY	\
++	ARM_SMCCC_CALL_VAL(ARM_SMCCC_FAST_CALL, ARM_SMCCC_SMC_64, \
++			   ARM_SMCCC_OWNER_SIP, 0x1810)
++#define SMC_CMD_SMU		\
++	ARM_SMCCC_CALL_VAL(ARM_SMCCC_FAST_CALL, ARM_SMCCC_SMC_64, \
++			   ARM_SMCCC_OWNER_SIP, 0x1850)
++#define SMC_CMD_FMP_SMU_RESUME	\
++	ARM_SMCCC_CALL_VAL(ARM_SMCCC_FAST_CALL, ARM_SMCCC_SMC_64, \
++			   ARM_SMCCC_OWNER_SIP, 0x1860)
++#define SMU_EMBEDDED			0
++#define SMU_INIT			0
++#define CFG_DESCTYPE_3			3
++
++#define EXYNOS8895_PMU_UFS_PHY_CTRL	0x724
++#define EXYNOS8895_SYSREG_UFS_TCXO_SEL	0x1150
++#define EXYNOS8895_PMA_TRSV_STRIDE	0x140
++#define EXYNOS8895_UFS_SHARABLE		(BIT(8) | BIT(9))
++#define HCI_MPHY_REFCLK_SEL		0x108
++#define MPHY_REFCLK_SEL			BIT(0)
++#define HCI_UFS_ACG_DISABLE		0xFC
++#define HCI_UFS_ACG_DISABLE_EN		BIT(0)
++/* M-PHY attribute selectors for the PCS lanes */
++#define TX_LANE_0			0
++#define RX_LANE_0			4
++
++enum {
++	E8895_END = 0,
++	E8895_UNIPRO_STD_MIB,
++	E8895_UNIPRO_DBG_MIB,
++	E8895_UNIPRO_DBG_PRD,
++	E8895_UNIPRO_DBG_APB,
++	E8895_PCS_COMN,
++	E8895_PCS_RXTX,
++	E8895_PCS_RX,
++	E8895_PCS_TX,
++	E8895_PCS_RX_PRD,
++	E8895_PCS_TX_PRD,
++	E8895_PMA_COMN,
++	E8895_PMA_TRSV,
++	E8895_WAIT,
++};
++
++/* power mode flags: PWM G1..G5 x L1/L2 in bits 0..9, HS G1..G3 in 10..15 */
++#define E8895_PMD_PWM_BIT(g, l)	BIT(((g) - 1) * 2 + (l) - 1)
++#define E8895_PMD_HS_BIT(g, l)	BIT(10 + ((g) - 1) * 2 + (l) - 1)
++#define E8895_PMD_PWM_G4_L2	E8895_PMD_PWM_BIT(4, 2)
++#define E8895_PMD_HS_G1_L2	E8895_PMD_HS_BIT(1, 2)
++#define E8895_PMD_HS_G2_L2	E8895_PMD_HS_BIT(2, 2)
++#define E8895_PMD_HS_G3_L2	E8895_PMD_HS_BIT(3, 2)
++#define E8895_PMD_ALL		(E8895_PMD_HS_G3_L2 - 1)
++#define E8895_PMD_PWM		(E8895_PMD_PWM_G4_L2 - 1)
++#define E8895_PMD_HS		(E8895_PMD_ALL ^ E8895_PMD_PWM)
++
++struct exynos8895_ufs_cfg {
++	u32 addr;
++	u32 val;
++	u32 flg;
++	u8 lyr;
++};
++
++static const struct exynos8895_ufs_cfg exynos8895_phy_init[] = {
++	{ 0x9514, 0x00, E8895_PMD_ALL, E8895_UNIPRO_DBG_PRD },
++	{ 0x200, 0x40, E8895_PMD_ALL, E8895_PCS_COMN },
++	{ 0x12, 0x00, E8895_PMD_ALL, E8895_PCS_RX_PRD },
++	{ 0xAA, 0x00, E8895_PMD_ALL, E8895_PCS_TX_PRD },
++	{ 0x5C, 0x38, E8895_PMD_ALL, E8895_PCS_RX },
++	{ 0x0F, 0x0, E8895_PMD_ALL, E8895_PCS_RX },
++	{ 0x65, 0x01, E8895_PMD_ALL, E8895_PCS_RX },
++	{ 0x69, 0x01, E8895_PMD_ALL, E8895_PCS_RX },
++	{ 0x21, 0x00, E8895_PMD_ALL, E8895_PCS_RX },
++	{ 0x22, 0x00, E8895_PMD_ALL, E8895_PCS_RX },
++	{ 0x84, 0x01, E8895_PMD_ALL, E8895_PCS_RX },
++	{ 0x04, 0x01, E8895_PMD_ALL, E8895_PCS_TX },
++	{ 0x200, 0x0, E8895_PMD_ALL, E8895_PCS_COMN },
++	{ 0x9536, 0x4E20, E8895_PMD_ALL, E8895_UNIPRO_DBG_MIB },
++	{ 0x9564, 0x2e820183, E8895_PMD_ALL, E8895_UNIPRO_DBG_MIB },
++	{ 0x155E, 0x0, E8895_PMD_ALL, E8895_UNIPRO_STD_MIB },
++	{ 0x3000, 0x0, E8895_PMD_ALL, E8895_UNIPRO_STD_MIB },
++	{ 0x3001, 0x1, E8895_PMD_ALL, E8895_UNIPRO_STD_MIB },
++	{ 0x4021, 0x1, E8895_PMD_ALL, E8895_UNIPRO_STD_MIB },
++	{ 0x4020, 0x1, E8895_PMD_ALL, E8895_UNIPRO_STD_MIB },
++	{ 0x8C, 0x80, E8895_PMD_ALL, E8895_PMA_COMN },
++	{ 0x74, 0x10, E8895_PMD_ALL, E8895_PMA_COMN },
++	{ 0x110, 0xB5, E8895_PMD_ALL, E8895_PMA_TRSV },
++	{ 0x134, 0x43, E8895_PMD_ALL, E8895_PMA_TRSV },
++	{ 0x16C, 0x20, E8895_PMD_ALL, E8895_PMA_TRSV },
++	{ 0x178, 0xC0, E8895_PMD_ALL, E8895_PMA_TRSV },
++	{ 0xE0, 0x12, E8895_PMD_ALL, E8895_PMA_TRSV },
++	{ 0x164, 0x58, E8895_PMD_ALL, E8895_PMA_TRSV },
++	{ 0x8C, 0xC0, E8895_PMD_ALL, E8895_PMA_COMN },
++	{ 0x8C, 0x00, E8895_PMD_ALL, E8895_PMA_COMN },
++	{ 0x00, 0xC8, E8895_PMD_ALL, E8895_WAIT },
++	{ }
++};
++
++static const struct exynos8895_ufs_cfg exynos8895_post_phy_init[] = {
++	{ 0x9529, 0x1, E8895_PMD_ALL, E8895_UNIPRO_DBG_MIB },
++	{ 0x15A4, 0xFA, E8895_PMD_ALL, E8895_UNIPRO_STD_MIB },
++	{ 0x9529, 0x0, E8895_PMD_ALL, E8895_UNIPRO_DBG_MIB },
++	{ 0x200, 0x40, E8895_PMD_ALL, E8895_PCS_COMN },
++	{ 0x35, 0x05, E8895_PMD_ALL, E8895_PCS_RX },
++	{ 0x73, 0x01, E8895_PMD_ALL, E8895_PCS_RX },
++	{ 0x41, 0x02, E8895_PMD_ALL, E8895_PCS_RX },
++	{ 0x42, 0xAC, E8895_PMD_ALL, E8895_PCS_RX },
++	{ 0x200, 0x0, E8895_PMD_ALL, E8895_PCS_COMN },
++	{ }
++};
++
++static const struct exynos8895_ufs_cfg exynos8895_calib_of_pwm[] = {
++	{ 0x1569, 0x0, E8895_PMD_PWM, E8895_UNIPRO_STD_MIB },
++	{ 0x1584, 0x0, E8895_PMD_PWM, E8895_UNIPRO_STD_MIB },
++	{ 0x2041, 8064, E8895_PMD_PWM, E8895_UNIPRO_STD_MIB },
++	{ 0x2042, 28224, E8895_PMD_PWM, E8895_UNIPRO_STD_MIB },
++	{ 0x2043, 20160, E8895_PMD_PWM, E8895_UNIPRO_STD_MIB },
++	{ 0x15B0, 12000, E8895_PMD_PWM, E8895_UNIPRO_STD_MIB },
++	{ 0x15B1, 32000, E8895_PMD_PWM, E8895_UNIPRO_STD_MIB },
++	{ 0x15B2, 16000, E8895_PMD_PWM, E8895_UNIPRO_STD_MIB },
++	{ 0x7888, 8064, E8895_PMD_PWM, E8895_UNIPRO_DBG_APB },
++	{ 0x788C, 28224, E8895_PMD_PWM, E8895_UNIPRO_DBG_APB },
++	{ 0x7890, 20160, E8895_PMD_PWM, E8895_UNIPRO_DBG_APB },
++	{ 0x78B8, 12000, E8895_PMD_PWM, E8895_UNIPRO_DBG_APB },
++	{ 0x78BC, 32000, E8895_PMD_PWM, E8895_UNIPRO_DBG_APB },
++	{ 0x78C0, 16000, E8895_PMD_PWM, E8895_UNIPRO_DBG_APB },
++	{ 0xC8, 0x40, E8895_PMD_PWM, E8895_PMA_TRSV },
++	{ 0xF0, 0x77, E8895_PMD_PWM, E8895_PMA_TRSV },
++	{ 0x120, 0x80, E8895_PMD_PWM, E8895_PMA_TRSV },
++	{ 0x128, 0x00, E8895_PMD_PWM, E8895_PMA_TRSV },
++	{ 0x12C, 0x00, E8895_PMD_PWM, E8895_PMA_TRSV },
++	{ 0x134, 0x43, E8895_PMD_PWM, E8895_PMA_TRSV },
++	{ }
++};
++
++static const struct exynos8895_ufs_cfg exynos8895_calib_of_hs_rate_a[] = {
++	{ 0x1569, 0x1, E8895_PMD_HS, E8895_UNIPRO_STD_MIB },
++	{ 0x1584, 0x1, E8895_PMD_HS, E8895_UNIPRO_STD_MIB },
++	{ 0x2041, 8064, E8895_PMD_HS, E8895_UNIPRO_STD_MIB },
++	{ 0x2042, 28224, E8895_PMD_HS, E8895_UNIPRO_STD_MIB },
++	{ 0x2043, 20160, E8895_PMD_HS, E8895_UNIPRO_STD_MIB },
++	{ 0x15B0, 12000, E8895_PMD_HS, E8895_UNIPRO_STD_MIB },
++	{ 0x15B1, 32000, E8895_PMD_HS, E8895_UNIPRO_STD_MIB },
++	{ 0x15B2, 16000, E8895_PMD_HS, E8895_UNIPRO_STD_MIB },
++	{ 0x7888, 8064, E8895_PMD_HS, E8895_UNIPRO_DBG_APB },
++	{ 0x788C, 28224, E8895_PMD_HS, E8895_UNIPRO_DBG_APB },
++	{ 0x7890, 20160, E8895_PMD_HS, E8895_UNIPRO_DBG_APB },
++	{ 0x78B8, 12000, E8895_PMD_HS, E8895_UNIPRO_DBG_APB },
++	{ 0x78BC, 32000, E8895_PMD_HS, E8895_UNIPRO_DBG_APB },
++	{ 0x78C0, 16000, E8895_PMD_HS, E8895_UNIPRO_DBG_APB },
++	{ 0xC8, 0xBC, E8895_PMD_HS, E8895_PMA_TRSV },
++	{ 0xF0, 0x7F, E8895_PMD_HS, E8895_PMA_TRSV },
++	{ 0x120, 0xC0, E8895_PMD_HS, E8895_PMA_TRSV },
++	{ 0x128, 0x08, E8895_PMD_HS_G1_L2, E8895_PMA_TRSV },
++	{ 0x128, 0x02, E8895_PMD_HS_G2_L2, E8895_PMA_TRSV },
++	{ 0x128, 0x00, E8895_PMD_HS_G3_L2, E8895_PMA_TRSV },
++	{ 0x12C, 0x00, (E8895_PMD_HS_G1_L2|E8895_PMD_HS_G3_L2), E8895_PMA_TRSV },
++	{ 0x12C, 0x00, E8895_PMD_HS_G2_L2, E8895_PMA_TRSV },
++	{ 0x134, 0xd3, E8895_PMD_HS_G1_L2, E8895_PMA_TRSV },
++	{ 0x134, 0x73, E8895_PMD_HS_G2_L2, E8895_PMA_TRSV },
++	{ 0x134, 0x63, E8895_PMD_HS_G3_L2, E8895_PMA_TRSV },
++	{ 0x108, 0x5D, E8895_PMD_HS, E8895_PMA_TRSV },
++	{ 0x10C, 0x90, E8895_PMD_HS, E8895_PMA_TRSV },
++	{ }
++};
++
++static const struct exynos8895_ufs_cfg exynos8895_calib_of_hs_rate_b[] = {
++	{ 0x1569, 0x1, E8895_PMD_HS, E8895_UNIPRO_STD_MIB },
++	{ 0x1584, 0x1, E8895_PMD_HS, E8895_UNIPRO_STD_MIB },
++	{ 0x2041, 8064, E8895_PMD_HS, E8895_UNIPRO_STD_MIB },
++	{ 0x2042, 28224, E8895_PMD_HS, E8895_UNIPRO_STD_MIB },
++	{ 0x2043, 20160, E8895_PMD_HS, E8895_UNIPRO_STD_MIB },
++	{ 0x15B0, 12000, E8895_PMD_HS, E8895_UNIPRO_STD_MIB },
++	{ 0x15B1, 32000, E8895_PMD_HS, E8895_UNIPRO_STD_MIB },
++	{ 0x15B2, 16000, E8895_PMD_HS, E8895_UNIPRO_STD_MIB },
++	{ 0x7888, 8064, E8895_PMD_HS, E8895_UNIPRO_DBG_APB },
++	{ 0x788C, 28224, E8895_PMD_HS, E8895_UNIPRO_DBG_APB },
++	{ 0x7890, 20160, E8895_PMD_HS, E8895_UNIPRO_DBG_APB },
++	{ 0x78B8, 12000, E8895_PMD_HS, E8895_UNIPRO_DBG_APB },
++	{ 0x78BC, 32000, E8895_PMD_HS, E8895_UNIPRO_DBG_APB },
++	{ 0x78C0, 16000, E8895_PMD_HS, E8895_UNIPRO_DBG_APB },
++	{ 0xC8, 0xBC, E8895_PMD_HS, E8895_PMA_TRSV },
++	{ 0xF0, 0x7F, E8895_PMD_HS, E8895_PMA_TRSV },
++	{ 0x120, 0xC0, E8895_PMD_HS, E8895_PMA_TRSV },
++	{ 0x128, 0x08, E8895_PMD_HS_G1_L2, E8895_PMA_TRSV },
++	{ 0x128, 0x02, E8895_PMD_HS_G2_L2, E8895_PMA_TRSV },
++	{ 0x128, 0x00, E8895_PMD_HS_G3_L2, E8895_PMA_TRSV },
++	{ 0x12C, 0x00, (E8895_PMD_HS_G1_L2|E8895_PMD_HS_G3_L2), E8895_PMA_TRSV },
++	{ 0x12C, 0x00, E8895_PMD_HS_G2_L2, E8895_PMA_TRSV },
++	{ 0x134, 0xd3, E8895_PMD_HS_G1_L2, E8895_PMA_TRSV },
++	{ 0x134, 0x73, E8895_PMD_HS_G2_L2, E8895_PMA_TRSV },
++	{ 0x134, 0x63, E8895_PMD_HS_G3_L2, E8895_PMA_TRSV },
++	{ 0x108, 0x5D, E8895_PMD_HS, E8895_PMA_TRSV },
++	{ 0x10C, 0x90, E8895_PMD_HS, E8895_PMA_TRSV },
++	{ }
++};
++
++static bool exynos8895_ufs_match_mode(const struct ufs_pa_layer_attr *pmd,
++				      u32 flg)
++{
++	bool hs = pmd->pwr_rx == FAST_MODE || pmd->pwr_rx == FASTAUTO_MODE;
++	u32 g = pmd->gear_rx, l = pmd->lane_rx;
++
++	if (flg == E8895_PMD_ALL)
++		return true;
++	if (flg == E8895_PMD_HS)
++		return hs;
++	if (flg == E8895_PMD_PWM)
++		return !hs;
++	if (!g || !l || l > 2 || g > (hs ? 3 : 5))
++		return false;
++
++	return flg & (hs ? E8895_PMD_HS_BIT(g, l) : E8895_PMD_PWM_BIT(g, l));
++}
++
++static void exynos8895_ufs_config(struct exynos_ufs *ufs,
++				  const struct exynos8895_ufs_cfg *cfg,
++				  const struct ufs_pa_layer_attr *pmd)
++{
++	struct ufs_hba *hba = ufs->hba;
++	u32 mclk_period = NSEC_PER_SEC / ufs->mclk_rate;
++	u32 pclk_period = NSEC_PER_SEC / ufs->pclk_rate;
++	int lanes = ufs->avail_ln_rx ?: 1;
++	int i;
++
++	for (; cfg->lyr != E8895_END; cfg++) {
++		if (pmd && !exynos8895_ufs_match_mode(pmd, cfg->flg))
++			continue;
++
++		for (i = 0; i < lanes; i++) {
++			switch (cfg->lyr) {
++			case E8895_UNIPRO_STD_MIB:
++			case E8895_UNIPRO_DBG_MIB:
++			case E8895_PCS_COMN:
++				if (!i)
++					ufshcd_dme_set(hba, UIC_ARG_MIB(cfg->addr),
++						       cfg->val);
++				break;
++			case E8895_PCS_RXTX:
++				ufshcd_dme_set(hba, UIC_ARG_MIB_SEL(cfg->addr, i),
++					       cfg->val);
++				break;
++			case E8895_UNIPRO_DBG_PRD:
++				if (!i)
++					ufshcd_dme_set(hba, UIC_ARG_MIB(cfg->addr),
++						       mclk_period);
++				break;
++			case E8895_PCS_RX:
++				ufshcd_dme_set(hba,
++					UIC_ARG_MIB_SEL(cfg->addr, RX_LANE_0 + i),
++					cfg->val);
++				break;
++			case E8895_PCS_TX:
++				ufshcd_dme_set(hba,
++					UIC_ARG_MIB_SEL(cfg->addr, TX_LANE_0 + i),
++					cfg->val);
++				break;
++			case E8895_PCS_RX_PRD:
++				ufshcd_dme_set(hba,
++					UIC_ARG_MIB_SEL(cfg->addr, RX_LANE_0 + i),
++					pclk_period);
++				break;
++			case E8895_PCS_TX_PRD:
++				ufshcd_dme_set(hba,
++					UIC_ARG_MIB_SEL(cfg->addr, TX_LANE_0 + i),
++					pclk_period);
++				break;
++			case E8895_PMA_COMN:
++				if (!i)
++					writel(cfg->val, ufs->reg_pma + cfg->addr);
++				break;
++			case E8895_PMA_TRSV:
++				writel(cfg->val, ufs->reg_pma + cfg->addr +
++				       EXYNOS8895_PMA_TRSV_STRIDE * i);
++				break;
++			case E8895_UNIPRO_DBG_APB:
++				if (!i)
++					unipro_writel(ufs, cfg->val, cfg->addr);
++				break;
++			case E8895_WAIT:
++				if (!i)
++					udelay(cfg->val);
++				break;
++			}
++		}
++	}
++}
++
++static int exynos8895_ufs_drv_init(struct exynos_ufs *ufs)
++{
++	struct device *dev = ufs->hba->dev;
++	struct platform_device *pdev = to_platform_device(dev);
++	struct regmap *pmu;
++	struct resource *res;
++
++	/* the PMA is also the PHY provider's; map it without claiming it */
++	res = platform_get_resource_byname(pdev, IORESOURCE_MEM, "pma");
++	if (!res)
++		return -ENODEV;
++	ufs->reg_pma = devm_ioremap(dev, res->start, resource_size(res));
++	if (!ufs->reg_pma)
++		return -ENOMEM;
++
++	/*
++	 * Release the M-PHY isolation once, like downstream does at probe;
++	 * the PHY provider leaves it alone so the PMA setup survives link
++	 * retries.
++	 */
++	pmu = syscon_regmap_lookup_by_phandle(dev->of_node,
++					      "samsung,pmu-syscon");
++	if (IS_ERR(pmu))
++		return PTR_ERR(pmu);
++	regmap_update_bits(pmu, EXYNOS8895_PMU_UFS_PHY_CTRL, BIT(0), BIT(0));
++
++	/*
++	 * Downstream does not divide the UniPro APB clock on this host
++	 * revision (pclk = the full 166 MHz ACLK); the PCS clock-period
++	 * values in the tables derive from that.
++	 */
++	/* M-PHY reference clock from the TCXO alternative path */
++	if (ufs->sysreg)
++		regmap_update_bits(ufs->sysreg, EXYNOS8895_SYSREG_UFS_TCXO_SEL,
++				   BIT(0), BIT(0));
++
++	return 0;
++}
++
++static int exynos8895_ufs_pre_link(struct exynos_ufs *ufs)
++{
++	struct ufs_hba *hba = ufs->hba;
++
++	if (ufs->avail_ln_rx == 0 || ufs->avail_ln_tx == 0) {
++		ufshcd_dme_get(hba, UIC_ARG_MIB(PA_AVAILRXDATALANES),
++			       &ufs->avail_ln_rx);
++		ufshcd_dme_get(hba, UIC_ARG_MIB(PA_AVAILTXDATALANES),
++			       &ufs->avail_ln_tx);
++	}
++
++	hci_writel(ufs, hci_readl(ufs, HCI_MPHY_REFCLK_SEL) | MPHY_REFCLK_SEL,
++		   HCI_MPHY_REFCLK_SEL);
++
++	/*
++	 * The HW auto clock gating reset default flipped to "enabled" on this
++	 * SoC; downstream disables it before link startup, otherwise the
++	 * UniPro/M-PHY clocks can be gated and link startup never completes.
++	 */
++	hci_writel(ufs, hci_readl(ufs, HCI_UFS_ACG_DISABLE) |
++		   HCI_UFS_ACG_DISABLE_EN, HCI_UFS_ACG_DISABLE);
++
++	exynos8895_ufs_config(ufs, exynos8895_phy_init, NULL);
++	return 0;
++}
++
++static int exynos8895_ufs_post_link(struct exynos_ufs *ufs)
++{
++	exynos8895_ufs_config(ufs, exynos8895_post_phy_init, NULL);
++	return 0;
++}
++
++static int exynos8895_ufs_pre_pwr_change(struct exynos_ufs *ufs,
++					 struct ufs_pa_layer_attr *pwr)
++{
++	const struct exynos8895_ufs_cfg *tbl;
++
++	if (pwr->pwr_rx == FAST_MODE || pwr->pwr_rx == FASTAUTO_MODE)
++		tbl = pwr->hs_rate == PA_HS_MODE_A ? exynos8895_calib_of_hs_rate_a :
++						     exynos8895_calib_of_hs_rate_b;
++	else
++		tbl = exynos8895_calib_of_pwm;
++
++	exynos8895_ufs_config(ufs, tbl, pwr);
++	return 0;
++}
++
+ static void exynos_ufs_auto_ctrl_hcc(struct exynos_ufs *ufs, bool en)
+ {
+ 	u32 misc = hci_readl(ufs, HCI_MISC);
+@@ -755,6 +1133,15 @@ static void exynos_ufs_config_smu(struct exynos_ufs *ufs)
+ 	if (ufs->opts & EXYNOS_UFS_OPT_UFSPR_SECURE)
+ 		return;
+ 
++	/*
++	 * Exynos 8895: the UFS protector is secure-only (direct accesses
++	 * hang the bus) and the FMP_SECURITY SMC never returns on this
++	 * firmware.  The bootloader loads the kernel from this UFS, so the
++	 * protector is already set up; leave it alone.
++	 */
++	if (ufs->opts & EXYNOS_UFS_OPT_SKIP_UFSP_SETUP)
++		return;
++
+ 	exynos_ufs_disable_auto_ctrl_hcc_save(ufs, &val);
+ 
+ 	/* make encryption disabled by default */
+@@ -1065,8 +1452,12 @@ static int exynos_ufs_pre_link(struct ufs_hba *hba)
+ 	/* unipro */
+ 	exynos_ufs_config_unipro(ufs);
+ 
+-	if (ufs->drv_data->pre_link)
+-		ufs->drv_data->pre_link(ufs);
++	if (ufs->drv_data->pre_link) {
++		int ret = ufs->drv_data->pre_link(ufs);
++
++		if (ret)
++			return ret;
++	}
+ 
+ 	/* m-phy */
+ 	exynos_ufs_phy_init(ufs);
+@@ -1267,18 +1658,6 @@ struct fmp_sg_entry {
+ 	__be64 reserved[2];
+ };
+ 
+-#define SMC_CMD_FMP_SECURITY	\
+-	ARM_SMCCC_CALL_VAL(ARM_SMCCC_FAST_CALL, ARM_SMCCC_SMC_64, \
+-			   ARM_SMCCC_OWNER_SIP, 0x1810)
+-#define SMC_CMD_SMU		\
+-	ARM_SMCCC_CALL_VAL(ARM_SMCCC_FAST_CALL, ARM_SMCCC_SMC_64, \
+-			   ARM_SMCCC_OWNER_SIP, 0x1850)
+-#define SMC_CMD_FMP_SMU_RESUME	\
+-	ARM_SMCCC_CALL_VAL(ARM_SMCCC_FAST_CALL, ARM_SMCCC_SMC_64, \
+-			   ARM_SMCCC_OWNER_SIP, 0x1860)
+-#define SMU_EMBEDDED			0
+-#define SMU_INIT			0
+-#define CFG_DESCTYPE_3			3
+ 
+ static void exynos_ufs_fmp_init(struct ufs_hba *hba, struct exynos_ufs *ufs)
+ {
+@@ -1458,6 +1837,7 @@ static int exynos_ufs_init(struct ufs_hba *hba)
+ 	struct exynos_ufs *ufs;
+ 	int ret;
+ 
++
+ 	ufs = devm_kzalloc(dev, sizeof(*ufs), GFP_KERNEL);
+ 	if (!ufs)
+ 		return -ENOMEM;
+@@ -2009,8 +2389,36 @@ static int gs101_ufs_pre_pwr_change(struct exynos_ufs *ufs,
+ 	return 0;
+ }
+ 
++/*
++ * Exynos 8895 does not report UPMCRS in HCS; downstream reads the DME
++ * indication results from the UniPro block instead.
++ */
++#define UNIP_DME_HIBERN8_ENTER_IND_RESULT	0x7868
++#define UNIP_DME_HIBERN8_EXIT_IND_RESULT	0x7878
++#define UNIP_DME_PWR_IND_RESULT			0x78ec
++
++static u8 exynos_ufs_get_upmcrs(struct ufs_hba *hba,
++				const struct uic_command *cmd)
++{
++	struct exynos_ufs *ufs = ufshcd_get_variant(hba);
++
++	if (ufs && (ufs->opts & EXYNOS_UFS_OPT_UNIPRO_DIRECT_RESULT)) {
++		switch (cmd->command) {
++		case UIC_CMD_DME_SET:
++			return unipro_readl(ufs, UNIP_DME_PWR_IND_RESULT);
++		case UIC_CMD_DME_HIBER_ENTER:
++			return unipro_readl(ufs, UNIP_DME_HIBERN8_ENTER_IND_RESULT);
++		case UIC_CMD_DME_HIBER_EXIT:
++			return unipro_readl(ufs, UNIP_DME_HIBERN8_EXIT_IND_RESULT);
++		}
++	}
++
++	return (ufshcd_readl(hba, REG_CONTROLLER_STATUS) >> 8) & 0x7;
++}
++
+ static const struct ufs_hba_variant_ops ufs_hba_exynos_ops = {
+ 	.name				= "exynos_ufs",
++	.get_upmcrs			= exynos_ufs_get_upmcrs,
+ 	.init				= exynos_ufs_init,
+ 	.exit				= exynos_ufs_exit,
+ 	.hce_enable_notify		= exynos_ufs_hce_enable_notify,
+@@ -2039,6 +2447,7 @@ static int exynos_ufs_probe(struct platform_device *pdev)
+ 	const struct exynos_ufs_drv_data *drv_data =
+ 		device_get_match_data(dev);
+ 
++
+ 	if (drv_data && drv_data->vops)
+ 		vops = drv_data->vops;
+ 
+@@ -2130,6 +2539,48 @@ static const struct exynos_ufs_drv_data exynos_ufs_drvs = {
+ 	.post_pwr_change	= exynos7_ufs_post_pwr_change,
+ };
+ 
++static struct exynos_ufs_uic_attr exynos8895_uic_attr = {
++	.tx_trailingclks		= 0x10,
++	.tx_dif_p_nsec			= 3000000,	/* unit: ns */
++	.tx_dif_n_nsec			= 1000000,	/* unit: ns */
++	.tx_high_z_cnt_nsec		= 20000,	/* unit: ns */
++	.tx_base_unit_nsec		= 100000,	/* unit: ns */
++	.tx_gran_unit_nsec		= 4000,		/* unit: ns */
++	.tx_sleep_cnt			= 1000,		/* unit: ns */
++	.tx_min_activatetime		= 0xa,
++	.rx_filler_enable		= 0x2,
++	.rx_dif_p_nsec			= 1000000,	/* unit: ns */
++	.rx_hibern8_wait_nsec		= 4000000,	/* unit: ns */
++	.rx_base_unit_nsec		= 100000,	/* unit: ns */
++	.rx_gran_unit_nsec		= 4000,		/* unit: ns */
++	.rx_sleep_cnt			= 1280,		/* unit: ns */
++	.rx_stall_cnt			= 320,		/* unit: ns */
++	/* PA_DBG_CLK_PERIOD and PA_DBG_OPTION_SUITE come from the phy-init table */
++};
++
++static const struct exynos_ufs_drv_data exynos8895_ufs_drvs = {
++	.uic_attr		= &exynos8895_uic_attr,
++	.quirks			= UFSHCD_QUIRK_PRDT_BYTE_GRAN |
++				  UFSHCI_QUIRK_BROKEN_REQ_LIST_CLR |
++				  UFSHCI_QUIRK_BROKEN_HCE |
++				  UFSHCI_QUIRK_SKIP_RESET_INTR_AGGR |
++				  UFSHCD_QUIRK_BROKEN_OCS_FATAL_ERROR |
++				  UFSHCI_QUIRK_SKIP_MANUAL_WB_FLUSH_CTRL |
++				  UFSHCD_QUIRK_SKIP_DEF_UNIPRO_TIMEOUT_SETTING,
++	.opts			= EXYNOS_UFS_OPT_HAS_APB_CLK_CTRL |
++				  EXYNOS_UFS_OPT_BROKEN_AUTO_CLK_CTRL |
++				  EXYNOS_UFS_OPT_BROKEN_RX_SEL_IDX |
++				  EXYNOS_UFS_OPT_SKIP_CONFIG_PHY_ATTR |
++				  EXYNOS_UFS_OPT_USE_SW_HIBERN8_TIMER |
++				  EXYNOS_UFS_OPT_SKIP_UFSP_SETUP |
++				  EXYNOS_UFS_OPT_UNIPRO_DIRECT_RESULT,
++	.iocc_mask		= EXYNOS8895_UFS_SHARABLE,
++	.drv_init		= exynos8895_ufs_drv_init,
++	.pre_link		= exynos8895_ufs_pre_link,
++	.post_link		= exynos8895_ufs_post_link,
++	.pre_pwr_change		= exynos8895_ufs_pre_pwr_change,
++};
++
+ static struct exynos_ufs_uic_attr gs101_uic_attr = {
+ 	.tx_trailingclks		= 0xff,
+ 	.pa_dbg_opt_suite1_val		= 0x90913C1C,
+@@ -2206,6 +2657,8 @@ static const struct of_device_id exynos_ufs_of_match[] = {
+ 	  .data	      = &gs101_ufs_drvs },
+ 	{ .compatible = "samsung,exynos7-ufs",
+ 	  .data	      = &exynos_ufs_drvs },
++	{ .compatible = "samsung,exynos8895-ufs",
++	  .data	      = &exynos8895_ufs_drvs },
+ 	{ .compatible = "samsung,exynosautov9-ufs",
+ 	  .data	      = &exynosauto_ufs_drvs },
+ 	{ .compatible = "samsung,exynosautov9-ufs-vh",
+diff --git a/drivers/ufs/host/ufs-exynos.h b/drivers/ufs/host/ufs-exynos.h
+index abe7e4727..37e046329 100644
+--- a/drivers/ufs/host/ufs-exynos.h
++++ b/drivers/ufs/host/ufs-exynos.h
+@@ -232,6 +232,7 @@ struct exynos_ufs {
+ 	ktime_t entry_hibern8_t;
+ 	const struct exynos_ufs_drv_data *drv_data;
+ 	struct regmap *sysreg;
++	void __iomem *reg_pma;		/* Exynos 8895: M-PHY PMA (shared with PHY) */
+ 	u32 iocc_offset;
+ 	u32 iocc_mask;
+ 	u32 iocc_val;
+@@ -245,6 +246,8 @@ struct exynos_ufs {
+ #define EXYNOS_UFS_OPT_SKIP_CONFIG_PHY_ATTR	BIT(5)
+ #define EXYNOS_UFS_OPT_UFSPR_SECURE		BIT(6)
+ #define EXYNOS_UFS_OPT_TIMER_TICK_SELECT	BIT(7)
++#define EXYNOS_UFS_OPT_SKIP_UFSP_SETUP	BIT(8)
++#define EXYNOS_UFS_OPT_UNIPRO_DIRECT_RESULT	BIT(9)
+ };
+ 
+ #define for_each_ufs_rx_lane(ufs, i) \
+diff --git a/include/ufs/ufshcd.h b/include/ufs/ufshcd.h
+index 8563b6648..e4d4edb10 100644
+--- a/include/ufs/ufshcd.h
++++ b/include/ufs/ufshcd.h
+@@ -335,6 +335,11 @@ struct ufs_pwr_mode_info {
+ struct ufs_hba_variant_ops {
+ 	const char *name;
+ 	int	max_num_rtt;
++	/*
++	 * Optional: power mode change request status for @cmd, for hosts
++	 * that do not report UPMCRS in the controller status register.
++	 */
++	u8	(*get_upmcrs)(struct ufs_hba *hba, const struct uic_command *cmd);
+ 	int	(*init)(struct ufs_hba *);
+ 	void    (*exit)(struct ufs_hba *);
+ 	u32	(*get_ufs_hci_version)(struct ufs_hba *);

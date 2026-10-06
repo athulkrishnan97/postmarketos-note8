@@ -1,0 +1,4 @@
+#!/bin/sh
+# No RTC under the mainline kernel: the clock boots at 1970 and chronyd,
+# started before Wi-Fi, never syncs. Restart it once a connection is up.
+case "$2" in up|connectivity-change) rc-service chronyd restart >/dev/null 2>&1 ;; esac

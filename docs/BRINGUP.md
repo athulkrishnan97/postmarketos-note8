@@ -260,6 +260,7 @@ Root cause chain (all verified):
   /dev/block/sda7). boot-backup-twrp.img = TWRP/LOS boot for recovery.
 - Rootfs: microSD GPT, p1 pmOS_boot (487M), p2 pmOS_root.
 - Internal UFS invisible to mainline (parked; needs UFS driver work).
+  [Done 2026-10-06, see section 16.]
 - Kernel source: pmaports linux-postmarketos-exynos8895 (branch greatlte-v2),
   mainline 7.0-rc1 base. DTS patch for greatlte in the same branch.
   Local linux-mainline/ is a sparse clone for header reference; to compile
@@ -590,13 +591,100 @@ All in aports/linux-postmarketos-exynos8895/exynos8895-display.patch.
     started, truncated busybox). tools/reboot-download.c has the fix.
   - microSD UHS: no vqmmc (S2MPS17 LDO2) is described, so UHS SDR104/SDR50
     signalling is not switched to 1.8 V -> command timeouts + I/O errors under
-    sustained reads (e.g. loading QtWebEngine) hang the system. SDR50 is the
-    current setting; dropping UHS entirely broke boot (fixed sampling timing).
-    Proper fix: add LDO2 + per-mode timings. The card itself reads clean.
+    sustained reads. SDR50 is the current setting; dropping UHS entirely
+    broke boot (fixed sampling timing). Proper fix: add LDO2 + per-mode
+    timings. The card itself reads clean. [2026-10-07: this was also blamed
+    for the browser freezes, but those happen from UFS too - section 17.]
   - Known limits: fbdev/fbcon still crashes early boot when enabled; no
     brightness control yet (no DCS 0x51 on this panel; AOR 0xB1 + 0xF7 latch
     dims but must be sent between frames); Plasma ~24-30 fps.
-  - UFS (internal storage) port in progress, not in this package.
+  - UFS (internal storage): done, see section 16.
+
+--------------------------------------------------------------------------------
+16. INTERNAL UFS STORAGE (2026-10-06, working; rootfs moved off the microSD)
+--------------------------------------------------------------------------------
+Device: Toshiba THGAF4G9N4LBAIRA (64 GB, UFS 2.1, 4 KiB logical blocks).
+Driver: mainline drivers/ufs/host/ufs-exynos.c + an "samsung,exynos8895-ufs"
+variant, PHY stub drivers/phy/samsung/phy-exynos8895-ufs.c. All in
+aports/linux-postmarketos-exynos8895/exynos8895-ufs.patch;
+CONFIG_SCSI_UFS_EXYNOS=y, CONFIG_PHY_SAMSUNG_UFS=y (built in: root is on it).
+Result: HS-G3 rate B x2 lanes, ~600 MB/s reads; sda1-21 (BOTA0 .. USERDATA),
+sdb-sde boot/RPMB LUNs.
+
+16.1 What it took, in the order the failures appeared
+  - HCI registers read 0: the FSYS0 bus gates (AHBBR hclk, RSTNSYNC, PMU_FSYS0
+    pclk, BTM aclk/pclk) must be clocked. Do NOT list the XIU clocks: when a
+    failed probe turned them off, the next access hung the SoC.
+  - The secure UFS protector (UFSP/FMP) is set up by the bootloader and is
+    secure-only; the FMP SMC never returns, so the variant skips it
+    (EXYNOS_UFS_OPT_SKIP_UFSP_SETUP).
+  - M-PHY tuning: the downstream DT tables (phy-init, post-phy-init,
+    calib-of-pwm, calib-of-hs-rate-a/b) are ported verbatim and replayed by a
+    small interpreter (exynos8895_ufs_config). PMA is byte-addressed with a
+    0x140 per-lane stride; PCS lane selectors are TX 0 / RX 4. Also: PMU 0x724
+    bit0 (PHY isolation off), sysreg FSYS0 0x1150 bit0 (TCXO select),
+    HCI 0x108 bit0 (MPHY refclk select).
+  - Link start-up timed out until HW auto clock gating was disabled
+    (HCI_UFS_ACG_DISABLE 0xFC bit0), as downstream does.
+  - NOP OUT failed with the node marked dma-coherent: the controller is NOT
+    coherent on this SoC.
+  - Power mode change "failed" with UPMCRS 0: this UniPro reports the result
+    in its own registers (0x78EC / 0x7868 / 0x7878), not in the HCI. Added an
+    optional get_upmcrs vop to the UFS core (EXYNOS_UFS_OPT_UNIPRO_DIRECT_RESULT).
+  - pclk: no divider on chip rev 0004 (downstream does the same).
+  - VCC: regulator-fixed on gpg0-0, always-on. (The gpg0 DAT register is
+    0x109801A4 - PERIC1 bank table, gpg0 at +0x1a0 - not 0x10980144.)
+  - Remaining harmless noise: dme-set 0x9540 and 0x321 fail (attributes this
+    UniPro does not implement).
+
+16.2 Moving the rootfs
+  The phone could not copy its own rootfs: a long sequential read from the
+  microSD triggered the SD freeze (15.4). Instead, on the laptop: the SD root
+  partition was copied into an 8 GB ext4 image (fstab rewritten to the UFS
+  UUIDs) and the boot partition into an ext2 image, both written from TWRP
+  with `adb exec-in "dd of=/dev/block/sdaNN"` (~6.5 MB/s) and checked by md5
+  over the full length, then resize2fs on first boot.
+  GOTCHA: the first boot failed with "EXT4-fs (sda16): bad block size 1024":
+  the SD boot partition has 1 KiB blocks, below the UFS 4 KiB sector size.
+  Recreated it with mkfs.ext2 -b 4096. pstore (pmsg-ramoops-0, readable from
+  TWRP) held the initramfs log that showed this.
+  Selection: pmos_boot_uuid= / pmos_root_uuid= in the dts bootargs (the
+  initramfs otherwise picks partitions by the pmOS_boot/pmOS_root labels,
+  which the microSD also carries). Labels on UFS: pmOS_ufs_boot/pmOS_ufs_root.
+  No RTC driver: the clock starts at 1970 and chronyd (started before WiFi)
+  never syncs -> NetworkManager dispatcher hook restarts chronyd on connect.
+
+--------------------------------------------------------------------------------
+17. BROWSER START-UP FREEZE (2026-10-07, unsolved)
+--------------------------------------------------------------------------------
+Opening Firefox or Angelfish hard-freezes the phone within seconds of the
+window appearing, before any page loads. No panic, no soft/hard-lockup
+report; WiFi drops and the kernel log simply stops. ramoops comes back empty
+after the forced reboot (RAM is not retained).
+Ruled out (each test ran without a freeze unless noted):
+  - microSD: froze identically with the rootfs on UFS.
+  - GPU clock: froze at 260 MHz as at 546 MHz.
+  - GPU at all: froze with Firefox on llvmpipe (LIBGL_ALWAYS_SOFTWARE=1,
+    MOZ_WEBRENDER_SOFTWARE=1) and with Firefox on X11/Xwayland.
+  - CPU load: 8 busy loops 90 s; openssl speed -multi 8 (AES-GCM + SHA-256,
+    SIMD/crypto ext) on all cores, load ~10.
+  - Memory: 8x dd 32M blocks for 90 s. A once-a-second synced logger showed
+    1.2 GB free at the freeze - not OOM.
+  - Sandboxing: 300 x unshare -Urn (the browsers' per-process user+net
+    namespaces; the last kernel lines before each freeze were `lo` adds).
+  - Hardware info reads: all 9482 files under /sys/devices, /sys/firmware,
+    /sys/kernel read one by one as the user.
+  - DRM probing: drm_info over card0/card1/renderD128.
+  - GPU rendering: glmark2-es2-wayland off-screen and fullscreen (one
+    harmless job page fault).
+  - Firefox's own start-up: `firefox --headless --screenshot` exits fine.
+  - On-screen keyboard popping up: fine in other apps.
+  - Network: the freeze happens before any page loads.
+So it follows the browser *window* on the desktop. Next ideas: test another
+heavy non-browser app (Konsole, Discover); trace the browser start-up
+(strace) with a log that survives the freeze; look for a register access
+with the clocks off on the display path; the panfrost_gem_open WARN
+(madv != WILLNEED on a PRIME import) seen with Angelfish on the GPU.
 
 --------------------------------------------------------------------------------
 11. TODO / KNOWN REMAINING WORK
@@ -617,7 +705,8 @@ All in aports/linux-postmarketos-exynos8895/exynos8895-display.patch.
     pmOS runs udhcpd on usb0).
 [ ] GPU/display: simpledrm only (llvmpipe); panfrost/Mesa for Mali-G71
     (needs G3D power domain/clocks - CMU_G3D not modeled yet either).
-[ ] UFS internal storage driver.
+[x] UFS internal storage driver (2026-10-06, section 16).
+[ ] Browser start-up freeze (section 17).
 [ ] Consider re-pairing resilience: a tiny phone-side script for
     discoverable/agent state if bonds break again.
 [ ] bnep-up could daemonize properly + auto-reconnect instead of pause().
