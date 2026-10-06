@@ -1,9 +1,11 @@
 #!/sbin/openrc-run
 # greatlte: bring up the Mali-G71 (panfrost) before the display manager.
-# The G3D clock/PLL bootstrap is runtime-steppable via debugfs; the GPU
-# runs from the 800 MHz CMU_TOP switch (the G3D PLL at 0x120 is not
-# writable on this silicon - the bootloader's own PLL config lives at
-# 0x140 and is already locked).
+# Steps (debugfs g3d_step, see clk-exynos8895.c):
+#   1 = pmucal g3d_on writes (enables/locks the G3D PLL at CMU_G3D+0x140)
+#   2 = CMU_TOP switch clock, 3 = busd mux -> switch (bridge clock),
+#   6 = gates, 7 = relock the G3D PLL to 546 MHz (stock max clock),
+#   5 = busd mux -> G3D PLL.  Without 1/5 the GPU runs from the 26 MHz
+#   oscillator.
 depend() {
 	before tinydm
 	after sysfs
@@ -12,7 +14,7 @@ depend() {
 start() {
 	ebegin "Bringing up Mali-G71 (panfrost)"
 	grep -q debugfs /proc/mounts || mount -t debugfs none /sys/kernel/debug
-	for s in 2 3 6; do
+	for s in 1 2 3 6 7 5; do
 		echo $s > /sys/kernel/debug/g3d_step 2>/dev/null
 	done
 	echo 13900000.gpu > /sys/bus/platform/drivers/panfrost/unbind 2>/dev/null

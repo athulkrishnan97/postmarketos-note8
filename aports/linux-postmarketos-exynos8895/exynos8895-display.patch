@@ -1,0 +1,4353 @@
+diff --git a/Documentation/devicetree/bindings/mfd/samsung,s2dos05.yaml b/Documentation/devicetree/bindings/mfd/samsung,s2dos05.yaml
+index b85285720..be49102eb 100644
+--- a/Documentation/devicetree/bindings/mfd/samsung,s2dos05.yaml
++++ b/Documentation/devicetree/bindings/mfd/samsung,s2dos05.yaml
+@@ -4,7 +4,7 @@
+ $id: http://devicetree.org/schemas/mfd/samsung,s2dos05.yaml#
+ $schema: http://devicetree.org/meta-schemas/core.yaml#
+ 
+-title: Samsung S2DOS05 Power Management IC
++title: Samsung S2DOS03/S2DOS05 Power Management ICs
+ 
+ maintainers:
+   - Dzmitry Sankouski <dsankouski@gmail.com>
+@@ -12,8 +12,8 @@ maintainers:
+ description:
+   This is a device tree bindings for S2DOS family of Power Management IC (PMIC).
+ 
+-  The S2DOS05 is a companion power management IC for the panel and touchscreen
+-  in smart phones. Provides voltage regulators and
++  The S2DOS03 and S2DOS05 are companion power management ICs for the panel
++  and touchscreen in smart phones. Provides voltage regulators and
+   ADC for power/current measurements.
+ 
+   Regulator section has 4 LDO and 1 BUCK regulators and also
+@@ -21,7 +21,9 @@ description:
+ 
+ properties:
+   compatible:
+-    const: samsung,s2dos05
++    enum:
++      - samsung,s2dos03
++      - samsung,s2dos05
+ 
+   reg:
+     maxItems: 1
+diff --git a/arch/arm64/boot/dts/exynos/exynos8895-greatlte.dts b/arch/arm64/boot/dts/exynos/exynos8895-greatlte.dts
+index cbc4fe1c9..57ee5b254 100644
+--- a/arch/arm64/boot/dts/exynos/exynos8895-greatlte.dts
++++ b/arch/arm64/boot/dts/exynos/exynos8895-greatlte.dts
+@@ -22,19 +22,7 @@ aliases {
+ 	};
+ 
+ 	chosen {
+-		bootargs = "fbcon=font:TER16x32";
+-		#address-cells = <2>;
+-		#size-cells = <1>;
+-		ranges;
+-
+-		framebuffer: framebuffer@cc000000 {
+-			compatible = "simple-framebuffer";
+-			reg = <0 0xcc000000 (1440 * 2960 * 4)>;
+-			width = <1440>;
+-			height = <2960>;
+-			stride = <(1440 * 4)>;
+-			format = "a8r8g8b8";
+-		};
++		bootargs = "fbcon=font:TER16x32 loglevel=4 softlockup_panic=1 hung_task_panic=1 panic=5 cma=384M@0x80000000-0xbc000000";
+ 	};
+ 
+ 	memory@80000000 {
+@@ -49,17 +37,22 @@ reserved-memory {
+ 		#size-cells = <1>;
+ 		ranges;
+ 
++		/*
++		 * ECT (Exynos Characteristic Table: DVFS/ASV voltages, PLL
++		 * tables) placed here by the bootloader; keep it intact so
++		 * the stock voltage tables can be read back.
++		 */
++		ect@a0000000 {
++			reg = <0 0xa0000000 0x19000>;
++			no-map;
++		};
++
+ 		ramoops@92000000 {
+ 			compatible = "ramoops";
+ 			reg = <0 0x92000000 0x8000>;
+ 			record-size = <0x4000>;
+ 			console-size = <0x4000>;
+ 		};
+-
+-		cont_splash_mem: framebuffer@cc000000 {
+-			reg = <0 0xcc000000 (1440 * 2960 * 4)>;
+-			no-map;
+-		};
+ 	};
+ 
+ 	gpio-keys {
+@@ -162,8 +155,12 @@ &mmc {
+ 	cd-gpios = <&gpa1 5 GPIO_ACTIVE_LOW>;
+ 	clock-frequency = <800000000>;
+ 	disable-wp;
++	/*
++	 * No SDR104: with the fixed sampling timing below (no per-card
++	 * tuning) the ~166 MHz link throws command timeouts and read
++	 * errors under sustained reads (the card itself reads cleanly).
++	 */
+ 	sd-uhs-sdr50;
+-	sd-uhs-sdr104;
+ 
+ 	vmmc-supply = <&tflash_pwr>;
+ 
+@@ -227,12 +224,79 @@ sd2_tflash_en: sd2-tflash-en-pins {
+ 	};
+ };
+ 
++&usi5 {
++	samsung,mode = <USI_MODE_I2C1>;
++
++	status = "okay";
++};
++
++&hsi2c_16 {
++	#address-cells = <1>;
++	#size-cells = <0>;
++
++	status = "okay";
++
++	/* Panel PMIC (display DDI power) */
++	pmic@60 {
++		compatible = "samsung,s2dos03";
++		reg = <0x60>;
++
++		regulators {
++			vdd_ddi_1p6: buck {
++				regulator-name = "vdd_ddi_1p6";
++				regulator-min-microvolt = <1500000>;
++				regulator-max-microvolt = <1600000>;
++				regulator-always-on;
++			};
++
++			vdd_ddi_1p8: ldo1 {
++				regulator-name = "vdd_ddi_1p8";
++				regulator-min-microvolt = <1800000>;
++				regulator-max-microvolt = <1800000>;
++				regulator-always-on;
++			};
++
++			vdd_ddi_3p0: ldo3 {
++				regulator-name = "vdd_ddi_3p0";
++				regulator-min-microvolt = <3000000>;
++				regulator-max-microvolt = <3000000>;
++				regulator-always-on;
++			};
++		};
++	};
++};
++
+ &usi9 {
+ 	samsung,mode = <USI_MODE_I2C0_1>;
+ 
+ 	status = "okay";
+ };
+ 
++/* DECON_f display controller (Stage 3 bring-up; simple-framebuffer stays
++ * as fallback) */
++&decon_f {
++	pinctrl-names = "default";
++	pinctrl-0 = <&decon_f_te_on>;
++
++	status = "okay";
++};
++
++/* DSIM0 host + S6E3HA6 panel (command mode, DSC, 4 lanes) */
++&dsim0 {
++	status = "okay";
++
++	panel@0 {
++		compatible = "samsung,s6e3ha6";
++		reg = <0>;
++
++		reset-gpios = <&gpa0 5 GPIO_ACTIVE_LOW>;
++
++		vdd_ddi_3p0-supply = <&vdd_ddi_3p0>;
++		vdd_ddi_1p8-supply = <&vdd_ddi_1p8>;
++		vdd_ddi_1p6-supply = <&vdd_ddi_1p6>;
++	};
++};
++
+ /* Dedicated Bluetooth UART (UART_BT) */
+ &serial_1 {
+ 	status = "okay";
+diff --git a/arch/arm64/boot/dts/exynos/exynos8895-pinctrl.dtsi b/arch/arm64/boot/dts/exynos/exynos8895-pinctrl.dtsi
+index 8c8d397ae..31ed352c2 100644
+--- a/arch/arm64/boot/dts/exynos/exynos8895-pinctrl.dtsi
++++ b/arch/arm64/boot/dts/exynos/exynos8895-pinctrl.dtsi
+@@ -535,6 +535,18 @@ gpb0: gpb0-gpio-bank {
+ 
+ 		interrupt-controller;
+ 		#interrupt-cells = <2>;
++
++		/* DECON_f TE input from the panel (GPIO gpb0-1) */
++		decon_f_te_on: decon-f-te-on {
++			samsung,pins = "gpb0-1";
++			samsung,pin-function = <EXYNOS_PIN_FUNC_EINT>;
++		};
++
++		decon_f_te_off: decon-f-te-off {
++			samsung,pins = "gpb0-1";
++			samsung,pin-function = <EXYNOS_PIN_FUNC_INPUT>;
++			samsung,pin-pud = <EXYNOS_PIN_PULL_DOWN>;
++		};
+ 	};
+ 
+ 	gpc0: gpc0-gpio-bank {
+diff --git a/arch/arm64/boot/dts/exynos/exynos8895.dtsi b/arch/arm64/boot/dts/exynos/exynos8895.dtsi
+index 87155659a..9fc441e53 100644
+--- a/arch/arm64/boot/dts/exynos/exynos8895.dtsi
++++ b/arch/arm64/boot/dts/exynos/exynos8895.dtsi
+@@ -8,6 +8,7 @@
+ #include <dt-bindings/clock/samsung,exynos8895.h>
+ #include <dt-bindings/gpio/gpio.h>
+ #include <dt-bindings/interrupt-controller/arm-gic.h>
++#include <dt-bindings/interrupt-controller/irq.h>
+ 
+ / {
+ 	compatible = "samsung,exynos8895";
+@@ -68,10 +69,10 @@ cpu4: cpu@0 {
+ 			compatible = "samsung,mongoose-m2";
+ 			reg = <0x0>;
+ 			enable-method = "psci";
+-			clocks = <&cmu_cpucl1 CLK_CLUSTER1_CLK>;
++			clocks = <&cmu_cpucl0 CLK_CLUSTER0_CLK>;
+ 			clock-names = "cluster1_clk";
+ 			operating-points-v2 = <&cluster1_opp_table>;
+-			cpu-supply = <&buck3_reg>;
++			cpu-supply = <&buck2_reg>;
+ 		};
+ 
+ 		cpu5: cpu@1 {
+@@ -79,10 +80,10 @@ cpu5: cpu@1 {
+ 			compatible = "samsung,mongoose-m2";
+ 			reg = <0x1>;
+ 			enable-method = "psci";
+-			clocks = <&cmu_cpucl1 CLK_CLUSTER1_CLK>;
++			clocks = <&cmu_cpucl0 CLK_CLUSTER0_CLK>;
+ 			clock-names = "cluster1_clk";
+ 			operating-points-v2 = <&cluster1_opp_table>;
+-			cpu-supply = <&buck3_reg>;
++			cpu-supply = <&buck2_reg>;
+ 		};
+ 
+ 		cpu6: cpu@2 {
+@@ -90,10 +91,10 @@ cpu6: cpu@2 {
+ 			compatible = "samsung,mongoose-m2";
+ 			reg = <0x2>;
+ 			enable-method = "psci";
+-			clocks = <&cmu_cpucl1 CLK_CLUSTER1_CLK>;
++			clocks = <&cmu_cpucl0 CLK_CLUSTER0_CLK>;
+ 			clock-names = "cluster1_clk";
+ 			operating-points-v2 = <&cluster1_opp_table>;
+-			cpu-supply = <&buck3_reg>;
++			cpu-supply = <&buck2_reg>;
+ 		};
+ 
+ 		cpu7: cpu@3 {
+@@ -101,10 +102,10 @@ cpu7: cpu@3 {
+ 			compatible = "samsung,mongoose-m2";
+ 			reg = <0x3>;
+ 			enable-method = "psci";
+-			clocks = <&cmu_cpucl1 CLK_CLUSTER1_CLK>;
++			clocks = <&cmu_cpucl0 CLK_CLUSTER0_CLK>;
+ 			clock-names = "cluster1_clk";
+ 			operating-points-v2 = <&cluster1_opp_table>;
+-			cpu-supply = <&buck3_reg>;
++			cpu-supply = <&buck2_reg>;
+ 		};
+ 
+ 		cpu0: cpu@100 {
+@@ -112,10 +113,10 @@ cpu0: cpu@100 {
+ 			compatible = "arm,cortex-a53";
+ 			reg = <0x100>;
+ 			enable-method = "psci";
+-			clocks = <&cmu_cpucl0 CLK_CLUSTER0_CLK>;
++			clocks = <&cmu_cpucl1 CLK_CLUSTER1_CLK>;
+ 			clock-names = "cluster0_clk";
+ 			operating-points-v2 = <&cluster0_opp_table>;
+-			cpu-supply = <&buck2_reg>;
++			cpu-supply = <&buck3_reg>;
+ 		};
+ 
+ 		cpu1: cpu@101 {
+@@ -123,10 +124,10 @@ cpu1: cpu@101 {
+ 			compatible = "arm,cortex-a53";
+ 			reg = <0x101>;
+ 			enable-method = "psci";
+-			clocks = <&cmu_cpucl0 CLK_CLUSTER0_CLK>;
++			clocks = <&cmu_cpucl1 CLK_CLUSTER1_CLK>;
+ 			clock-names = "cluster0_clk";
+ 			operating-points-v2 = <&cluster0_opp_table>;
+-			cpu-supply = <&buck2_reg>;
++			cpu-supply = <&buck3_reg>;
+ 		};
+ 
+ 		cpu2: cpu@102 {
+@@ -134,10 +135,10 @@ cpu2: cpu@102 {
+ 			compatible = "arm,cortex-a53";
+ 			reg = <0x102>;
+ 			enable-method = "psci";
+-			clocks = <&cmu_cpucl0 CLK_CLUSTER0_CLK>;
++			clocks = <&cmu_cpucl1 CLK_CLUSTER1_CLK>;
+ 			clock-names = "cluster0_clk";
+ 			operating-points-v2 = <&cluster0_opp_table>;
+-			cpu-supply = <&buck2_reg>;
++			cpu-supply = <&buck3_reg>;
+ 		};
+ 
+ 		cpu3: cpu@103 {
+@@ -145,10 +146,10 @@ cpu3: cpu@103 {
+ 			compatible = "arm,cortex-a53";
+ 			reg = <0x103>;
+ 			enable-method = "psci";
+-			clocks = <&cmu_cpucl0 CLK_CLUSTER0_CLK>;
++			clocks = <&cmu_cpucl1 CLK_CLUSTER1_CLK>;
+ 			clock-names = "cluster0_clk";
+ 			operating-points-v2 = <&cluster0_opp_table>;
+-			cpu-supply = <&buck2_reg>;
++			cpu-supply = <&buck3_reg>;
+ 		};
+ 	};
+ 
+@@ -168,12 +169,12 @@ cluster0_opp_table: opp-table-0 {
+ 
+ 			opp-1690000000 {
+ 			opp-hz = /bits/ 64 <1690000000>;
+-			opp-microvolt = <1100000>;
++			opp-microvolt = <1200000>;
+ 		};
+ 
+ 		opp-1456000000 {
+ 			opp-hz = /bits/ 64 <1456000000>;
+-			opp-microvolt = <1018750>;
++			opp-microvolt = <1062500>;
+ 		};
+ 
+ 		opp-1248000000 {
+@@ -181,8 +182,8 @@ opp-1248000000 {
+ 			opp-microvolt = <1000000>;
+ 		};
+ 
+-		opp-1066000000 {
+-			opp-hz = /bits/ 64 <1066000000>;
++		opp-1053000000 {
++			opp-hz = /bits/ 64 <1053000000>;
+ 			opp-microvolt = <981250>;
+ 		};
+ 
+@@ -1530,12 +1531,18 @@ gpu: gpu@13900000 {
+ 		gpu_opp_table: opp-table-gpu {
+ 			compatible = "operating-points-v2";
+ 
+-			/* 546 MHz, worst ASV bin of the ECT dvfs_g3d table
+-			 * (725 mV) plus margin, within the 850 mV vdd_g3d cap.
++			/*
++			 * 546 MHz (stock gpu_max_clock): the g3d bring-up
++			 * (step 7) relocks the G3D PLL to this rate.  The
++			 * phone's ECT dvfs_g3d table asks for up to 768 mV at
++			 * 546 MHz (worst table/group) and stock adds a 37.5 mV
++			 * margin (gpu_voltage_offset_margin); 812.5 mV covers
++			 * every ASV group.  Linux does not change the PLL rate
++			 * at runtime, so this is the only OPP.
+ 			 */
+ 			opp-546000000 {
+-				opp-hz = /bits/ 64 <800000000>;
+-				opp-microvolt = <800000>;
++				opp-hz = /bits/ 64 <546000000>;
++				opp-microvolt = <812500>;
+ 			};
+ 		};
+ 
+@@ -1670,6 +1677,61 @@ reboot-mode {
+ 			};
+ 		};
+ 
++		/* DISP_SS sysreg: LPMUX config and MIPI PHY owner selection */
++		disp_ss: syscon@12821000 {
++			compatible = "syscon";
++			reg = <0x12821000 0x100>;
++		};
++
++		/*
++		 * DECON_f display controller.  The second reg range covers
++		 * the IDMA_G0 DMA channel registers, the third the DPU_DMA
++		 * common block and the fourth the DPU0 CMU clock gates for
++		 * the DECON0/DPP_G0/DPU_DMA clock path.  Power sequencing
++		 * (pd_dpu0/pd_dpu1, PHY isolation, LPMUX) is handled by the
++		 * DSIM host driver.
++		 */
++		decon_f: decon@12860000 {
++			compatible = "samsung,exynos8895-decon";
++			reg = <0x12860000 0x8000>,
++			      <0x128b1000 0x1000>,
++			      <0x128b0000 0x1000>,
++			      <0x12800000 0x8000>;
++			reg-names = "decon", "idma", "dma", "cmu";
++			interrupt-parent = <&gic>;
++			interrupts = <GIC_SPI 143 IRQ_TYPE_LEVEL_HIGH>,
++				     <GIC_SPI 144 IRQ_TYPE_LEVEL_HIGH>,
++				     <GIC_SPI 149 IRQ_TYPE_LEVEL_HIGH>;
++			interrupt-names = "frame-start", "frame-done", "extra";
++			clocks = <&cmu_top CLK_GOUT_CMU_DPU_BUS>;
++			clock-names = "dpu_bus";
++			samsung,disp-syscon = <&disp_ss>;
++			status = "disabled";
++		};
++
++		/*
++		 * DSIM0 MIPI-DSI host.  The second and third reg ranges cover
++		 * the DPU0/DPU1 CMU registers used for the DSIM0 and DPU1 CMU
++		 * clock gates/user muxes.  Power sequencing (pd_dpu0/pd_dpu1,
++		 * PHY isolation, LPMUX) is handled by the host driver.
++		 */
++		dsim0: dsi@12870000 {
++			compatible = "samsung,exynos8895-dsim";
++			reg = <0x12870000 0x1000>,
++			      <0x12800000 0x8000>,
++			      <0x12a00000 0x8000>;
++			reg-names = "dsim", "cmu", "cmu1";
++			interrupt-parent = <&gic>;
++			interrupts = <GIC_SPI 150 IRQ_TYPE_LEVEL_HIGH>;
++			clocks = <&cmu_top CLK_GOUT_CMU_DPU_BUS>;
++			clock-names = "dpu_bus";
++			samsung,pmu-syscon = <&pmu_system_controller>;
++			samsung,disp-syscon = <&disp_ss>;
++			#address-cells = <1>;
++			#size-cells = <0>;
++			status = "disabled";
++		};
++
+ 		pinctrl_alive: pinctrl@164b0000 {
+ 			compatible = "samsung,exynos8895-pinctrl";
+ 			reg = <0x164b0000 0x1000>;
+diff --git a/drivers/clk/samsung/clk-exynos8895.c b/drivers/clk/samsung/clk-exynos8895.c
+index 9a6c3d760..32ef583f1 100644
+--- a/drivers/clk/samsung/clk-exynos8895.c
++++ b/drivers/clk/samsung/clk-exynos8895.c
+@@ -2838,27 +2838,32 @@ PNAME(mout_cpucl0_pll_p)		= { "mout_pll_cpucl0",
+ 					    "mout_cpucl0_switch_user" };
+ 
+ /*
+- * PLL rate table for the A53 cluster PLL. All rates are exact multiples
+- * of the 26 MHz crystal: fout = 26 MHz * M / (P * 2^S) with P = 3 and the
+- * smallest S that keeps M an integer in the 64..1023 range. The 1066 MHz
+- * entry uses the P/M/S values from the downstream Samsung rate table
+- * (M=492, P=3, S=2) instead of the minimal-S solution (M=123, P=3, S=0),
+- * as this is the one CPU PLL configuration validated on this silicon.
++ * PLL rate table for CMU_CPUCL0, which clocks the Mongoose (M2) big
++ * cluster - the ECT PLL_CPUCL0 table; downstream pairs it with
++ * vdd_cpucl0 / BUCK2 (an earlier version had the two clusters' tables
++ * swapped). All rates are exact multiples
++ * of the 26 MHz crystal: fout = 26 MHz * M / (P * 2^S); the P/M/S values
++ * are copied from the phone's ECT (they keep the VCO in range).
+  */
+ static const struct samsung_pll_rate_table cpucl0_pll_rates[] __initconst = {
+-	PLL_35XX_RATE(26 * MHZ, 2002000000U, 231, 3, 0),
+-	PLL_35XX_RATE(26 * MHZ, 1898000000U, 219, 3, 0),
+-	PLL_35XX_RATE(26 * MHZ, 1794000000U, 207, 3, 0),
+-	PLL_35XX_RATE(26 * MHZ, 1690000000U, 195, 3, 0),
+-	PLL_35XX_RATE(26 * MHZ, 1456000000U, 168, 3, 0),
+-	PLL_35XX_RATE(26 * MHZ, 1248000000U, 144, 3, 0),
++	PLL_35XX_RATE(26 * MHZ, 2808000000U, 324, 3, 0),
++	PLL_35XX_RATE(26 * MHZ, 2704000000U, 312, 3, 0),
++	PLL_35XX_RATE(26 * MHZ, 2652000000U, 306, 3, 0),
++	PLL_35XX_RATE(26 * MHZ, 2574000000U, 297, 3, 0),
++	PLL_35XX_RATE(26 * MHZ, 2496000000U, 288, 3, 0),
++	PLL_35XX_RATE(26 * MHZ, 2314000000U, 267, 3, 0),
++	PLL_35XX_RATE(26 * MHZ, 2158000000U, 498, 3, 1),
++	PLL_35XX_RATE(26 * MHZ, 2002000000U, 462, 3, 1),
++	PLL_35XX_RATE(26 * MHZ, 1937000000U, 447, 3, 1),
++	PLL_35XX_RATE(26 * MHZ, 1807000000U, 417, 3, 1),
++	PLL_35XX_RATE(26 * MHZ, 1703000000U, 393, 3, 1),
++	PLL_35XX_RATE(26 * MHZ, 1469000000U, 339, 3, 1),
++	PLL_35XX_RATE(26 * MHZ, 1261000000U, 291, 3, 1),
++	PLL_35XX_RATE(26 * MHZ, 1170000000U, 270, 3, 1),
+ 	PLL_35XX_RATE(26 * MHZ, 1066000000U, 492, 3, 2),
+-	PLL_35XX_RATE(26 * MHZ, 1053000000U, 243, 3, 1),
+-	PLL_35XX_RATE(26 * MHZ, 949000000U,  219, 3, 1),
+-	PLL_35XX_RATE(26 * MHZ, 832000000U,  96,  3, 0),
+-	PLL_35XX_RATE(26 * MHZ, 715000000U,  165, 3, 1),
+-	PLL_35XX_RATE(26 * MHZ, 598000000U,  69,  3, 0),
+-	PLL_35XX_RATE(26 * MHZ, 455000000U,  105, 3, 1),
++	PLL_35XX_RATE(26 * MHZ, 962000000U, 444, 3, 2),
++	PLL_35XX_RATE(26 * MHZ, 858000000U, 396, 3, 2),
++	PLL_35XX_RATE(26 * MHZ, 741000000U, 342, 3, 2),
+ };
+ 
+ static const struct samsung_pll_clock cpucl0_pll_clks[] __initconst = {
+@@ -3011,30 +3016,23 @@ PNAME(mout_cpucl1_pll_p)		= { "mout_pll_cpucl1",
+ 					    "mout_cpucl1_switch_user" };
+ 
+ /*
+- * PLL rate table for the M2 cluster PLL. Same rules as for the A53
+- * cluster, see cpucl0_pll_rates. The 1066 MHz entry uses S = 1 (M = 246)
+- * instead of the minimal-S solution (M = 123, S = 0) to keep the VCO
+- * inside the 1200..2400 MHz range documented for the 1051X PLL.
++ * PLL rate table for CMU_CPUCL1, which clocks the Cortex-A53 little
++ * cluster (ECT PLL_CPUCL1, vdd_cpucl1 / BUCK3). Same rules as for
++ * cpucl0_pll_rates.
+  */
+ static const struct samsung_pll_rate_table cpucl1_pll_rates[] __initconst = {
+-	PLL_35XX_RATE(26 * MHZ, 2808000000U, 324, 3, 0),
+-	PLL_35XX_RATE(26 * MHZ, 2704000000U, 312, 3, 0),
+-	PLL_35XX_RATE(26 * MHZ, 2652000000U, 306, 3, 0),
+-	PLL_35XX_RATE(26 * MHZ, 2574000000U, 297, 3, 0),
+-	PLL_35XX_RATE(26 * MHZ, 2496000000U, 288, 3, 0),
+-	PLL_35XX_RATE(26 * MHZ, 2314000000U, 267, 3, 0),
+-	PLL_35XX_RATE(26 * MHZ, 2158000000U, 249, 3, 0),
+ 	PLL_35XX_RATE(26 * MHZ, 2002000000U, 231, 3, 0),
+-	PLL_35XX_RATE(26 * MHZ, 1937000000U, 447, 3, 1),
+-	PLL_35XX_RATE(26 * MHZ, 1807000000U, 417, 3, 1),
+-	PLL_35XX_RATE(26 * MHZ, 1703000000U, 393, 3, 1),
+-	PLL_35XX_RATE(26 * MHZ, 1469000000U, 339, 3, 1),
+-	PLL_35XX_RATE(26 * MHZ, 1261000000U, 291, 3, 1),
+-	PLL_35XX_RATE(26 * MHZ, 1170000000U, 135, 3, 0),
+-	PLL_35XX_RATE(26 * MHZ, 1066000000U, 246, 3, 1),
+-	PLL_35XX_RATE(26 * MHZ, 962000000U,  111, 3, 0),
+-	PLL_35XX_RATE(26 * MHZ, 858000000U,  99,  3, 0),
+-	PLL_35XX_RATE(26 * MHZ, 741000000U,  171, 3, 1),
++	PLL_35XX_RATE(26 * MHZ, 1898000000U, 219, 3, 0),
++	PLL_35XX_RATE(26 * MHZ, 1794000000U, 207, 3, 0),
++	PLL_35XX_RATE(26 * MHZ, 1690000000U, 195, 3, 0),
++	PLL_35XX_RATE(26 * MHZ, 1456000000U, 168, 3, 0),
++	PLL_35XX_RATE(26 * MHZ, 1248000000U, 144, 3, 0),
++	PLL_35XX_RATE(26 * MHZ, 1053000000U, 243, 3, 1),
++	PLL_35XX_RATE(26 * MHZ, 949000000U, 219, 3, 1),
++	PLL_35XX_RATE(26 * MHZ, 832000000U, 192, 3, 1),
++	PLL_35XX_RATE(26 * MHZ, 715000000U, 165, 3, 1),
++	PLL_35XX_RATE(26 * MHZ, 598000000U, 276, 3, 2),
++	PLL_35XX_RATE(26 * MHZ, 455000000U, 210, 3, 2),
+ };
+ 
+ static const struct samsung_pll_clock cpucl1_pll_clks[] __initconst = {
+@@ -3156,7 +3154,13 @@ CLK_OF_DECLARE(exynos8895_cmu_cpucl1, "samsung,exynos8895-cmu-cpucl1",
+ /* Register Offset definitions for CMU_G3D (0x13800000) */
+ #define PLL_LOCKTIME_PLL_G3D				0x0000
+ #define PLL_CON0_MUX_CLKCMU_G3D_SWITCH_USER		0x0100
+-#define PLL_CON0_PLL_G3D				0x0120
++/*
++ * The cmucal SFR map lists PLL_CON0_PLL_G3D at 0x120, but that register
++ * reads as zero and ignores writes on this silicon; the PLL that feeds
++ * the GPU (and that the downstream pmucal g3d_on sequence enables) is at
++ * 0x140, with PLL_CON2 at 0x148.
++ */
++#define PLL_CON0_PLL_G3D				0x0140
+ #define CLK_CON_MUX_MUX_CLK_G3D_BUSD			0x1000
+ #define CLK_CON_DIV_DIV_CLK_G3D_BUSP			0x1804
+ #define CLK_CON_GAT_CLK_BLK_G3D_UID_G3D_CMU_G3D_IPCLKPORT_PCLK	0x2004
+@@ -3182,7 +3186,7 @@ PNAME(mout_g3d_busd_p)		= { "fout_g3d_pll", "mout_g3d_switch_user" };
+  * are available once runtime switching is validated; the dts OPP table
+  * is deliberately limited to the stock boot rate for now.
+  */
+-static const struct samsung_pll_rate_table g3d_pll_rates[] __initconst = {
++static const struct samsung_pll_rate_table g3d_pll_rates[] __initconst __maybe_unused = {
+ 	PLL_35XX_RATE(26 * MHZ, 838500000U, 129, 4, 0),
+ 	PLL_35XX_RATE(26 * MHZ, 764400000U, 147, 5, 0),
+ 	PLL_35XX_RATE(26 * MHZ, 682500000U, 105, 4, 0),
+@@ -3194,9 +3198,15 @@ static const struct samsung_pll_rate_table g3d_pll_rates[] __initconst = {
+ 	PLL_35XX_RATE(26 * MHZ, 260000000U, 160, 4, 2),
+ };
+ 
++/*
++ * Registered without a rate table (recalc-only ops): the PLL is powered
++ * and locked by the pmucal g3d_on sequence, not by the clock framework.
++ * Letting GPU OPP requests reprogram it (546 MHz attempt) hung the
++ * system at boot, so Linux only reads its rate for now.
++ */
+ static const struct samsung_pll_clock g3d_pll_clks[] __initconst = {
+ 	PLL(pll_1052x, CLK_FOUT_G3D_PLL, "fout_g3d_pll", "oscclk",
+-	    PLL_LOCKTIME_PLL_G3D, PLL_CON0_PLL_G3D, g3d_pll_rates),
++	    PLL_LOCKTIME_PLL_G3D, PLL_CON0_PLL_G3D, NULL),
+ };
+ 
+ static const struct samsung_mux_clock g3d_mux_clks[] __initconst = {
+@@ -3204,8 +3214,12 @@ static const struct samsung_mux_clock g3d_mux_clks[] __initconst = {
+ 	      mout_g3d_switch_user_p,
+ 	      PLL_CON0_MUX_CLKCMU_G3D_SWITCH_USER, 4, 1,
+ 	      CLK_SET_RATE_PARENT, 0),
++	/*
++	 * No CLK_SET_RATE_PARENT: a GPU OPP request must not reprogram the
++	 * CMU_TOP switch divider or the G3D PLL behind the bring-up's back.
++	 */
+ 	MUX_F(CLK_MOUT_G3D_BUSD, "mout_g3d_busd", mout_g3d_busd_p,
+-	      CLK_CON_MUX_MUX_CLK_G3D_BUSD, 0, 1, CLK_SET_RATE_PARENT, 0),
++	      CLK_CON_MUX_MUX_CLK_G3D_BUSD, 0, 1, 0, 0),
+ };
+ 
+ static const struct samsung_div_clock g3d_div_clks[] __initconst = {
+@@ -3276,6 +3290,7 @@ CLK_OF_DECLARE(exynos8895_cmu_g3d, "samsung,exynos8895-cmu-g3d",
+  *   4 - PLL locktime + CON0 MPS|ENABLE, bounded STABLE poll
+  *   5 - busd mux -> fout_g3d_pll
+  *   6 - ungate AGPU (0x201c) + CMU PCLK (0x2004)
++ *   7 - relock the G3D PLL to 546 MHz (busd must be on the switch)
+  *   9 - steps 1-6 in order
+  * Reading the file dumps the raw registers.
+  */
+@@ -3439,6 +3454,45 @@ static int g3d_step_mux_pll(void)
+ 	return g3d_step_mux_ccf(0, "-> g3d_pll");
+ }
+ 
++/*
++ * Step 7: relock the G3D PLL (0x140) from the 260 MHz boot rate to
++ * 546 MHz (ECT dvfs_g3d level; vdd_g3d 800 mV covers the worst ASV bin).
++ * Must run while busd is on the TOP switch (step 3), before step 5.
++ */
++static int g3d_step_pll_546(void)
++{
++	u32 con0, mux;
++	int i;
++
++	mux = readl(g3d_base + CLK_CON_MUX_MUX_CLK_G3D_BUSD);
++	if (!(mux & BIT(0))) {
++		pr_err("g3d: busd still on the PLL (0x%x), refusing relock\n",
++		       mux);
++		return -EBUSY;
++	}
++
++	con0 = readl(g3d_base + PLL_CON0_PLL_G3D);
++	con0 &= ~((0x3ff << 16) | (0x3f << 8) | 0x7);
++	con0 |= (168 << 16) | (4 << 8) | 1;
++	writel(con0, g3d_base + PLL_CON0_PLL_G3D);
++
++	/*
++	 * The lock bit only drops once the PLL starts relocking; give it
++	 * more than the 600-cycle locktime (~23 us) before polling so a
++	 * stale "locked" is not mistaken for the new lock.
++	 */
++	udelay(50);
++	for (i = 0; i < 10000; i++) {
++		con0 = readl(g3d_base + PLL_CON0_PLL_G3D);
++		if (con0 & BIT(29))
++			break;
++		udelay(10);
++	}
++	pr_info("g3d: PLL 546 MHz %s (CON0 0x%x)\n",
++		con0 & BIT(29) ? "locked" : "NOT locked", con0);
++	return con0 & BIT(29) ? 0 : -ETIMEDOUT;
++}
++
+ static int g3d_step_gates(void)
+ {
+ 	g3d_reg_update(g3d_base, CLK_CON_GAT_GATE_CLK_G3D_AGPU,
+@@ -3511,6 +3565,9 @@ static ssize_t g3d_step_write(struct file *file, const char __user *ubuf,
+ 	case 6:
+ 		fn = g3d_step_gates;
+ 		break;
++	case 7:
++		fn = g3d_step_pll_546;
++		break;
+ 	case 9:
+ 		ret |= g3d_step_pre();
+ 		ret |= g3d_step_switch();
+diff --git a/drivers/gpu/drm/bridge/Kconfig b/drivers/gpu/drm/bridge/Kconfig
+index 39385deaf..5dfc84451 100644
+--- a/drivers/gpu/drm/bridge/Kconfig
++++ b/drivers/gpu/drm/bridge/Kconfig
+@@ -288,6 +288,28 @@ config DRM_SAMSUNG_DSIM
+ 	  This MIPI DSIM bridge can be found it on Exynos SoCs and
+ 	  NXP's i.MX8M Mini/Nano.
+ 
++config DRM_EXYNOS8895_DSIM
++	tristate "Exynos 8895 DSIM MIPI-DSI host driver"
++	depends on OF && HAS_IOMEM
++	select DRM_MIPI_DSI
++	help
++	  Minimal MIPI-DSI host driver for the Exynos 8895 DSIM
++	  controller, using the Exynos 8895 DSIM register map and
++	  initialization sequence.  Only command-mode transfers
++	  (DSI short/long writes and BTA reads) are supported.
++
++config DRM_EXYNOS8895_DECON
++	tristate "Exynos 8895 DECON_f display controller driver"
++	depends on OF && HAS_IOMEM
++	select DRM_BRIDGE_CONNECTOR
++	select DRM_PANEL_BRIDGE
++	select DRM_KMS_HELPER
++	help
++	  Standalone DRM/KMS driver for the Exynos 8895 DECON_f
++	  display controller.  Targets a single primary plane fed by
++	  IDMA_G0, one CRTC and a DSI panel bridge, with dual-DSC
++	  encoder programming for the command-mode DSI path.
++
+ config DRM_SIL_SII8620
+ 	tristate "Silicon Image SII8620 HDMI/MHL bridge"
+ 	depends on OF
+diff --git a/drivers/gpu/drm/bridge/Makefile b/drivers/gpu/drm/bridge/Makefile
+index 909c21cc3..1f606740e 100644
+--- a/drivers/gpu/drm/bridge/Makefile
++++ b/drivers/gpu/drm/bridge/Makefile
+@@ -24,6 +24,8 @@ obj-$(CONFIG_DRM_NXP_PTN3460) += nxp-ptn3460.o
+ obj-$(CONFIG_DRM_PARADE_PS8622) += parade-ps8622.o
+ obj-$(CONFIG_DRM_PARADE_PS8640) += parade-ps8640.o
+ obj-$(CONFIG_DRM_SAMSUNG_DSIM) += samsung-dsim.o
++obj-$(CONFIG_DRM_EXYNOS8895_DSIM) += exynos8895-dsim.o
++obj-$(CONFIG_DRM_EXYNOS8895_DECON) += exynos8895-decon.o
+ obj-$(CONFIG_DRM_SIL_SII8620) += sil-sii8620.o
+ obj-$(CONFIG_DRM_SII902X) += sii902x.o
+ obj-$(CONFIG_DRM_SII9234) += sii9234.o
+diff --git a/drivers/gpu/drm/bridge/exynos8895-decon.c b/drivers/gpu/drm/bridge/exynos8895-decon.c
+new file mode 100644
+index 000000000..b27635703
+--- /dev/null
++++ b/drivers/gpu/drm/bridge/exynos8895-decon.c
+@@ -0,0 +1,1452 @@
++// SPDX-License-Identifier: GPL-2.0-only
++/*
++ * Exynos 8895 DECON_f DRM/KMS driver
++ *
++ * Standalone display controller driver for the Galaxy Note 8 (greatlte)
++ * MIPI-DSI command-mode panel path.  Implements one primary plane fed by
++ * IDMA_G0, one CRTC, an encoder and a panel bridge connector, with custom
++ * contiguous GEM (dma_alloc_attrs) for dumb buffers.
++ *
++ * The hardware programming follows the downstream Exynos 8895 DPU
++ * (drivers/video/fbdev/exynos/dpu @ 3cfb914): DECON_f global control,
++ * DSCC + dual DSC encoders from the panel PPS table, frame FIFO /
++ * formatter / blender sizing and the command-mode shadow-update + trigger
++ * frame programming.
++ *
++ * The DSIM host (exynos8895-dsim.c) owns the DPU power domains, PHY
++ * isolation and LPMUX; this driver must not power anything off.
++ *
++ * Copyright (c) 2026 The postmarketOS project
++ */
++
++#include <linux/bitops.h>
++#include <linux/clk.h>
++#include <linux/completion.h>
++#include <linux/delay.h>
++#include <linux/dma-mapping.h>
++#include <linux/err.h>
++#include <linux/fb.h>
++#include <linux/interrupt.h>
++#include <linux/io.h>
++#include <linux/iopoll.h>
++#include <linux/timer.h>
++#include <linux/mfd/syscon.h>
++#include <linux/module.h>
++#include <linux/mutex.h>
++#include <linux/of.h>
++#include <linux/platform_device.h>
++#include <linux/regmap.h>
++
++#include <drm/clients/drm_client_setup.h>
++#include <drm/drm_atomic_helper.h>
++#include <drm/drm_bridge.h>
++#include <drm/drm_bridge_connector.h>
++#include <drm/drm_client.h>
++#include <drm/drm_crtc.h>
++#include <drm/drm_drv.h>
++#include <drm/drm_encoder.h>
++#include <drm/drm_fb_helper.h>
++#include <drm/drm_file.h>
++#include <drm/drm_fourcc.h>
++#include <drm/drm_framebuffer.h>
++#include <drm/drm_gem.h>
++#include <drm/drm_gem_framebuffer_helper.h>
++#include <drm/drm_ioctl.h>
++#include <drm/drm_managed.h>
++#include <drm/drm_modes.h>
++#include <drm/drm_panel.h>
++#include <drm/drm_plane.h>
++#include <drm/drm_prime.h>
++#include <drm/drm_print.h>
++#include <drm/drm_probe_helper.h>
++#include <drm/drm_vblank.h>
++
++#include "exynos8895-dsim.h"
++#include "regs-exynos8895-decon.h"
++
++#define DECON_UPDATE_TIMEOUT_US		20000
++#define DECON_IDLE_TIMEOUT_US		20000
++#define DECON_FLUSH_TIMEOUT_MS		100
++#define DECON_MAX_WIDTH			1440
++#define DECON_MAX_HEIGHT		2960
++
++/*
++ * DSC PPS for 1440x2960, 2 slices of 720x40, 8bpp (DSU mode 1,
++ * downstream GREAT_A2_S3 PPS).  Must match what the panel driver
++ * sends to the DDI decoder; keep in sync with panel-samsung-s6e3ha6.c.
++ */
++static const u8 s6e3ha6_dsc_pps[] = {
++	0x11, 0x00, 0x00, 0x89, 0x30, 0x80, 0x0b, 0x90,
++	0x05, 0xa0, 0x00, 0x28, 0x02, 0xd0, 0x02, 0xd0,
++	0x02, 0x00, 0x02, 0x68, 0x00, 0x20, 0x04, 0x6c,
++	0x00, 0x0a, 0x00, 0x0c, 0x02, 0x77, 0x01, 0xe9,
++	0x18, 0x00, 0x10, 0xf0, 0x03, 0x0c, 0x20, 0x00,
++	0x06, 0x0b, 0x0b, 0x33, 0x0e, 0x1c, 0x2a, 0x38,
++	0x46, 0x54, 0x62, 0x69, 0x70, 0x77, 0x79, 0x7b,
++	0x7d, 0x7e, 0x01, 0x02, 0x01, 0x00, 0x09, 0x40,
++	0x09, 0xbe, 0x19, 0xfc, 0x19, 0xfa, 0x19, 0xf8,
++	0x1a, 0x38, 0x1a, 0x78, 0x1a, 0xb6, 0x2a, 0xf6,
++	0x2b, 0x34, 0x2b, 0x74, 0x3b, 0x74, 0x6b, 0xf4,
++};
++
++#define DSC_PPS_BYTE(_n) \
++	((s6e3ha6_dsc_pps[_n] << 8) | s6e3ha6_dsc_pps[(_n) + 1])
++
++/* ------------------------------------------------------------------ */
++/* contiguous GEM                                                      */
++/* ------------------------------------------------------------------ */
++
++struct exynos8895_decon_gem {
++	struct drm_gem_object base;
++	void *kvaddr;
++	dma_addr_t dma_addr;
++	unsigned long size;
++};
++
++static inline struct exynos8895_decon_gem *
++to_decon_gem(struct drm_gem_object *obj)
++{
++	return container_of(obj, struct exynos8895_decon_gem, base);
++}
++
++static void decon_gem_free(struct drm_gem_object *obj)
++{
++	struct exynos8895_decon_gem *gem = to_decon_gem(obj);
++
++	dma_free_attrs(obj->dev->dev, gem->size, gem->kvaddr, gem->dma_addr,
++		       DMA_ATTR_WRITE_COMBINE);
++	drm_gem_object_release(obj);
++	kfree(gem);
++}
++
++static int decon_gem_vmap(struct drm_gem_object *obj, struct iosys_map *map)
++{
++	struct exynos8895_decon_gem *gem = to_decon_gem(obj);
++
++	iosys_map_set_vaddr(map, gem->kvaddr);
++	return 0;
++}
++
++static int decon_gem_mmap(struct drm_gem_object *obj, struct vm_area_struct *vma)
++{
++	struct exynos8895_decon_gem *gem = to_decon_gem(obj);
++
++	vma->vm_pgoff = 0;
++	return dma_mmap_attrs(obj->dev->dev, vma, gem->kvaddr, gem->dma_addr,
++			      gem->size, DMA_ATTR_WRITE_COMBINE);
++}
++
++/*
++ * Single-entry scatterlist so the core can export these objects as dma-bufs
++ * (gbm turns scanout buffers into PRIME fds which the GPU device imports).
++ */
++static struct sg_table *decon_gem_get_sg_table(struct drm_gem_object *obj)
++{
++	struct exynos8895_decon_gem *gem = to_decon_gem(obj);
++	struct sg_table *sgt;
++
++	sgt = kzalloc(sizeof(*sgt), GFP_KERNEL);
++	if (!sgt)
++		return ERR_PTR(-ENOMEM);
++
++	/*
++	 * kvaddr is a write-combine remap, not a linear-map address, so
++	 * virt_to_page() on it yields a bogus page; let the DMA API build
++	 * the table from the real backing pages.
++	 */
++	if (dma_get_sgtable(obj->dev->dev, sgt, gem->kvaddr, gem->dma_addr,
++			    gem->size)) {
++		kfree(sgt);
++		return ERR_PTR(-ENOMEM);
++	}
++
++	return sgt;
++}
++
++static const struct drm_gem_object_funcs decon_gem_funcs = {
++	.free = decon_gem_free,
++	.vmap = decon_gem_vmap,
++	.mmap = decon_gem_mmap,
++	.get_sg_table = decon_gem_get_sg_table,
++};
++
++static struct exynos8895_decon_gem *decon_gem_create(struct drm_device *drm,
++						     unsigned long size)
++{
++	struct exynos8895_decon_gem *gem;
++	int ret;
++
++	gem = kzalloc(sizeof(*gem), GFP_KERNEL);
++	if (!gem)
++		return ERR_PTR(-ENOMEM);
++
++	size = PAGE_ALIGN(size);
++
++	drm_gem_private_object_init(drm, &gem->base, size);
++
++	gem->kvaddr = dma_alloc_attrs(drm->dev, size, &gem->dma_addr,
++				      GFP_KERNEL, DMA_ATTR_WRITE_COMBINE);
++	if (!gem->kvaddr) {
++		ret = -ENOMEM;
++		goto err_release;
++	}
++
++	gem->size = size;
++	gem->base.funcs = &decon_gem_funcs;
++
++	return gem;
++
++err_release:
++	drm_gem_object_release(&gem->base);
++	kfree(gem);
++	return ERR_PTR(ret);
++}
++
++static int decon_dumb_create(struct drm_file *file_priv,
++			     struct drm_device *drm,
++			     struct drm_mode_create_dumb *args)
++{
++	struct exynos8895_decon_gem *gem;
++	u32 pitch = args->width * DIV_ROUND_UP(args->bpp, 8);
++	int ret;
++
++	args->pitch = pitch;
++	gem = decon_gem_create(drm, pitch * args->height);
++	if (IS_ERR(gem))
++		return PTR_ERR(gem);
++
++	args->size = gem->size;
++
++	ret = drm_gem_handle_create(file_priv, &gem->base, &args->handle);
++	drm_gem_object_put(&gem->base);
++	return ret;
++}
++
++DEFINE_DRM_GEM_FOPS(decon_drm_fops);
++
++/* ------------------------------------------------------------------ */
++/* driver private                                                      */
++/* ------------------------------------------------------------------ */
++
++struct exynos8895_decon {
++	struct drm_device drm;
++	struct device *dev;
++
++	void __iomem *regs;
++	void __iomem *idma;
++	void __iomem *dma_com;
++	void __iomem *cmu;
++
++	struct regmap *disp_ss;
++	struct clk *dpu_bus;
++
++	struct drm_plane plane;
++	struct drm_crtc crtc;
++	struct drm_encoder encoder;
++	struct drm_panel *panel;
++
++	int irq;
++	struct completion frame_done;
++	bool enabled;
++	/* page-flip event waiting for its frame (protected by drm.event_lock) */
++	struct drm_pending_vblank_event *event;
++
++	struct timer_list heartbeat;
++	int heartbeat_count;
++};
++
++static inline struct exynos8895_decon *to_decon(struct drm_device *drm)
++{
++	return container_of(drm, struct exynos8895_decon, drm);
++}
++
++static inline void decon_write(struct exynos8895_decon *decon, u32 reg, u32 val)
++{
++	writel(val, decon->regs + reg);
++}
++
++static inline u32 decon_read(struct exynos8895_decon *decon, u32 reg)
++{
++	return readl(decon->regs + reg);
++}
++
++static inline void decon_write_mask(struct exynos8895_decon *decon, u32 reg,
++				    u32 val, u32 mask)
++{
++	u32 v = decon_read(decon, reg);
++
++	v &= ~mask;
++	v |= val & mask;
++	decon_write(decon, reg, v);
++}
++
++static inline void idma_write(struct exynos8895_decon *decon, u32 reg, u32 val)
++{
++	writel(val, decon->idma + reg);
++}
++
++static inline void idma_write_mask(struct exynos8895_decon *decon, u32 reg,
++				   u32 val, u32 mask)
++{
++	u32 v = readl(decon->idma + reg);
++
++	v &= ~mask;
++	v |= val & mask;
++	idma_write(decon, reg, v);
++}
++
++/* ------------------------------------------------------------------ */
++/* DPU0 CMU gates                                                      */
++/* ------------------------------------------------------------------ */
++
++static void decon_setup_clocks(struct exynos8895_decon *decon)
++{
++	/*
++	 * AXI2APB_P0/P1 (0x2054/0x2058) are already ungated by the DSIM
++	 * driver, which probes before this driver's first MMIO access can
++	 * happen (panel lookup defers on the DSIM host); they are listed
++	 * anyway so this driver is self-contained if probe order changes.
++	 */
++	static const struct {
++		u32 offset;
++		const char *name;
++	} gates[] = {
++		{ DPU0_CMU_AD_APB_DECON0_0_GATE, "AD APB DECON0 0" },
++		{ DPU0_CMU_AD_APB_DECON0_1_GATE, "AD APB DECON0 1" },
++		{ DPU0_CMU_AXI2APB_P0_GATE, "DPU0 AXI2APB P0" },
++		{ DPU0_CMU_AXI2APB_P1_GATE, "DPU0 AXI2APB P1" },
++		{ DPU0_CMU_DECON0_ACLK_GATE, "DECON0 ACLK" },
++		{ DPU0_CMU_DPP_G0_ACLK_GATE, "DPP_G0 ACLK" },
++		{ DPU0_CMU_DPU_DMA_ACLK_CH0_GATE, "DPU_DMA ACLK CH0" },
++		{ DPU0_CMU_DPU_DMA_CH_INTF_GATE, "DPU_DMA CH_INTF" },
++		{ DPU0_CMU_DPU_DMA_ACLK_SFR_GATE, "DPU_DMA ACLK SFR" },
++		{ DPU0_CMU_QCH_CON_DECON0, "QCH_CON_DECON0" },
++		{ DPU0_CMU_QCH_CON_DPP_G0, "QCH_CON_DPP_G0" },
++		{ DPU0_CMU_QCH_CON_DPU_DMA, "QCH_CON_DPU_DMA" },
++	};
++	u32 val;
++	int i;
++
++	for (i = 0; i < ARRAY_SIZE(gates); i++) {
++		val = readl(decon->cmu + gates[i].offset);
++		writel(val | DPU0_CMU_GATE_ON, decon->cmu + gates[i].offset);
++		dev_dbg(decon->dev, "gate %s old 0x%x new 0x%x\n",
++			gates[i].name, val,
++			readl(decon->cmu + gates[i].offset));
++	}
++}
++
++/* ------------------------------------------------------------------ */
++/* DSC encoders                                                        */
++/* ------------------------------------------------------------------ */
++
++static void dsc_write(struct exynos8895_decon *decon, u32 dsc_offset,
++		      u32 reg, u32 val)
++{
++	writel(val, decon->regs + dsc_offset + reg);
++}
++
++static void dsc_write_mask(struct exynos8895_decon *decon, u32 dsc_offset,
++			   u32 reg, u32 val, u32 mask)
++{
++	u32 v = readl(decon->regs + dsc_offset + reg);
++
++	v &= ~mask;
++	v |= val & mask;
++	dsc_write(decon, dsc_offset, reg, v);
++}
++
++/*
++ * Program one DSC encoder.  Downstream (dsc_reg_set_encoder for
++ * dsc_cnt=2, dsc_slice_num=2) gives each encoder half the raster:
++ * pic_width = xres/2 = 720, dual-slice off, and hardcodes
++ * initial_dec_delay = 0x01B4 (the non-VESA_SCR_V4 build).  All other
++ * fields match the panel PPS table that the panel driver sends to the
++ * DDI decoder.  DSC_CONTROL1/2 (V/H porch) intentionally keep their
++ * reset values, matching downstream.
++ */
++static void decon_dsc_setup_encoder(struct exynos8895_decon *decon,
++				    u32 dsc_offset)
++{
++	dsc_write_mask(decon, dsc_offset, DSC_CONTROL0,
++		       DSC_DCG_EN_ALL_F | DSC_BYTE_SWAP_F |
++		       DSC_FLATNESS_DET_TH_F(0x2) | DSC_CG_EN_F,
++		       DSC_DCG_EN_ALL_F | DSC_BYTE_SWAP_F |
++		       DSC_FLATNESS_DET_TH_F(0xf) | DSC_CG_EN_F |
++		       DSC_DUAL_SLICE_EN_F);
++
++	dsc_write(decon, dsc_offset, DSC_PPS04_07,
++		  (s6e3ha6_dsc_pps[4] << 24) | (s6e3ha6_dsc_pps[5] << 16) |
++		  DSC_PPS_BYTE(6));
++	/* pic_width is per-encoder (720), not the full 1440 of the DDI PPS */
++	dsc_write(decon, dsc_offset, DSC_PPS08_11,
++		  ((720) << 16) | DSC_PPS_BYTE(10));
++	dsc_write(decon, dsc_offset, DSC_PPS12_15,
++		  (DSC_PPS_BYTE(12) << 16) | DSC_PPS_BYTE(14));
++	/* initial_dec_delay from the PPS table (0x268), as the bootloader does */
++	dsc_write(decon, dsc_offset, DSC_PPS16_19,
++		  (DSC_PPS_BYTE(16) << 16) | DSC_PPS_BYTE(18));
++	dsc_write(decon, dsc_offset, DSC_PPS20_23,
++		  (s6e3ha6_dsc_pps[21] << 16) | DSC_PPS_BYTE(22));
++	dsc_write(decon, dsc_offset, DSC_PPS24_27,
++		  (DSC_PPS_BYTE(24) << 16) | s6e3ha6_dsc_pps[27]);
++	dsc_write(decon, dsc_offset, DSC_PPS28_31,
++		  (DSC_PPS_BYTE(28) << 16) | DSC_PPS_BYTE(30));
++	dsc_write(decon, dsc_offset, DSC_PPS32_35,
++		  (DSC_PPS_BYTE(32) << 16) | DSC_PPS_BYTE(34));
++	/*
++	 * PPS56..59 share one SFR: bytes 56/57 are rc_buf_thresh[12/13]
++	 * (0x7d/0x7e).  Writing only the 58/59 halfword zeroes them and
++	 * breaks the encoder rate control (bootloader keeps 0x7d7e0102).
++	 */
++	dsc_write(decon, dsc_offset, DSC_PPS56_59,
++		  (DSC_PPS_BYTE(56) << 16) | DSC_PPS_BYTE(58));
++
++	/* fixed RC range parameter tail (non-VESA SCR v4 guidance) */
++	dsc_write(decon, dsc_offset, DSC_PPS76_79, 0x1ab62af6);
++	dsc_write(decon, dsc_offset, DSC_PPS80_83, 0x2b342b74);
++	dsc_write(decon, dsc_offset, DSC_PPS84_87, 0x3b746bf4);
++}
++
++/* ------------------------------------------------------------------ */
++/* DECON core                                                          */
++/* ------------------------------------------------------------------ */
++
++static void decon_shadow_update_req(struct exynos8895_decon *decon)
++{
++	decon_write_mask(decon, DECON_SHADOW_REG_UPDATE_REQ,
++			 DECON_SHADOW_UPDATE_GLOBAL, DECON_SHADOW_UPDATE_GLOBAL);
++}
++
++static int decon_wait_run_status(struct exynos8895_decon *decon, bool run)
++{
++	u32 val;
++	u32 mask = DECON_GLOBAL_CONTROL_RUN_STATUS;
++
++	return readl_poll_timeout(decon->regs + DECON_GLOBAL_CONTROL, val,
++				  !!(val & mask) == run, 100, DECON_UPDATE_TIMEOUT_US);
++}
++
++static void decon_trigger_set(struct exynos8895_decon *decon, bool enable)
++{
++	u32 val;
++
++	/*
++	 * Enabled: HW_TRIG_EN with DECON unmasked.  Disabled: DECON masked
++	 * so pending TE edges do not accumulate while idle.
++	 */
++	if (enable)
++		val = DECON_HW_TRIG_EN;
++	else
++		val = DECON_HW_TRIG_MASK_DECON;
++
++	decon_write_mask(decon, DECON_HW_SW_TRIG_CONTROL, val,
++			 DECON_HW_TRIG_EN | DECON_HW_TRIG_MASK_DECON);
++}
++
++static int decon_hw_init(struct exynos8895_decon *decon,
++			 const struct drm_display_mode *mode)
++{
++	u32 width = mode->hdisplay;
++	u32 height = mode->vdisplay;
++	/* compressed pixel units: each DSC encoder takes 720 source px at
++	 * 1/3 rate -> 240; downstream decon_reg_config_data_path_size uses
++	 * dsc_enc.width_per_enc for splitter/FF/formatter sizing.
++	 */
++	u32 width_per_enc = width / 2 / 3;
++
++	/*
++	 * No software reset: downstream deliberately avoids SW-resets in the
++	 * DPU blocks ("Basically, all SW-resets in DPU are not necessary"),
++	 * and a reset here would wipe live shadow state.
++	 */
++
++	/* clock auto gating */
++	decon_write_mask(decon, DECON_CLOCK_CONTROL_0, ~0U,
++			 DECON_CLOCK_CONTROL_0_F_MASK);
++
++	/* SRAM share: DECON0 uses FF0 + floating frame FIFO (8K total) */
++	decon_write(decon, DECON_SRAM_SHARE_ENABLE,
++		    DECON_SRAM_SHARE_FLOATING_F | DECON_SRAM_SHARE_FF0_F);
++
++	/* MIPI command mode (I80-style interface to DSIM) */
++	decon_write_mask(decon, DECON_GLOBAL_CONTROL,
++			 DECON_GLOBAL_CONTROL_OP_MODE_CMD,
++			 DECON_GLOBAL_CONTROL_OP_MODE_CMD);
++
++	/* blender background image size */
++	decon_write_mask(decon, DECON_BLENDER_BG_IMAGE_SIZE_0,
++			 DECON_BLENDER_BG_HEIGHT_F(height) |
++			 DECON_BLENDER_BG_WIDTH_F(width),
++			 DECON_BLENDER_BG_HEIGHT_F(0x3fff) |
++			 DECON_BLENDER_BG_WIDTH_F(0x3fff));
++	decon_write(decon, DECON_BLENDER_BG_IMAGE_SIZE_1, width * height);
++
++	/* formatter RGB order: DSC path uses DECON_RGB (0) */
++	decon_write_mask(decon, DECON_FORMATTER_CONTROL,
++			 DECON_FORMATTER_OUT_RGB_ORDER_F(0),
++			 DECON_FORMATTER_OUT_RGB_ORDER_MASK);
++
++	/*
++	 * Data path: DSCC -> DSC enc 0/1 -> frame FIFO 0/1 ->
++	 * formatter 0 -> DSIM IF 0.
++	 */
++	decon_write_mask(decon, DECON_DATA_PATH_CONTROL_2,
++			 DECON_ENHANCE_LOGIC_PATH_F(0) |
++			 DECON_COMP_LINKIF_WB_PATH_F(
++				 DECON_DPATH_DSCC_DSCENC01_FF01_FORMATTER0_DSIMIF0),
++			 DECON_ENHANCE_LOGIC_PATH_MASK |
++			 DECON_COMP_LINKIF_WB_PATH_MASK);
++
++	/*
++	 * Splitter: sizes are in compressed pixel units (1/3 rate): each
++	 * DSC encoder covers 720 source px = 240 compressed units, and the
++	 * two encoders merge into the formatter at 480.  Follows downstream
++	 * decon_reg_config_data_path_size(width_per_enc=240): splitter width
++	 * field doubles to 480 while its count uses 240, split index = 240.
++	 */
++	decon_write(decon, DECON_SPLITTER_SIZE_CONTROL_0,
++		    DECON_SPLITTER_HEIGHT_F(height) |
++		    DECON_SPLITTER_WIDTH_F(width_per_enc * 2));
++	decon_write(decon, DECON_SPLITTER_SIZE_CONTROL_1,
++		    width_per_enc * height);
++	decon_write(decon, DECON_SPLITTER_SPLIT_IDX_CONTROL, width_per_enc);
++	decon_write(decon, DECON_SPLITTER_OVERLAP_CONTROL, 0);
++
++	/* frame FIFOs: one per DSC encoder, compressed units */
++	decon_write(decon, DECON_FRAME_FIFO_0_SIZE_0,
++		    DECON_FRAME_FIFO_HEIGHT_F(height) |
++		    DECON_FRAME_FIFO_WIDTH_F(width_per_enc));
++	decon_write(decon, DECON_FRAME_FIFO_0_SIZE_1, width_per_enc * height);
++	decon_write(decon, DECON_FRAME_FIFO_1_SIZE_0,
++		    DECON_FRAME_FIFO_HEIGHT_F(height) |
++		    DECON_FRAME_FIFO_WIDTH_F(width_per_enc));
++	decon_write(decon, DECON_FRAME_FIFO_1_SIZE_1, width_per_enc * height);
++	decon_write(decon, DECON_FRAME_FIFO_TH_CONTROL_0,
++		    DECON_FRAME_FIFO_1_TH_F(width_per_enc) |
++		    DECON_FRAME_FIFO_0_TH_F(width_per_enc));
++
++	/* formatter 0 carries the merged DSC stream (2 x 240 = 480) */
++	decon_write(decon, DECON_FORMATTER0_SIZE_0,
++		    DECON_FORMATTER_HEIGHT_F(height) |
++		    DECON_FORMATTER_WIDTH_F(width_per_enc * 2));
++	decon_write(decon, DECON_FORMATTER0_SIZE_1, width_per_enc * 2 * height);
++
++	/* dual DSC encoders from the panel PPS table */
++	decon_dsc_setup_encoder(decon, DECON_DSC0_OFFSET);
++	decon_dsc_setup_encoder(decon, DECON_DSC1_OFFSET);
++
++	/* window 0: IDMA_G0 is DMA channel 5, opaque copy blending */
++	decon_write_mask(decon, DECON_DATA_PATH_CONTROL_1,
++			 DECON_WIN_CHMAP_F(0, 5), DECON_WIN_CHMAP_MASK(0));
++	/* only window 0: drop the bootloader's window 5 (also on ch 5) */
++	decon_write_mask(decon, DECON_DATA_PATH_CONTROL_0,
++			 DECON_WIN_EN_F(0), DECON_WIN_EN_F(0) | DECON_WIN_EN_F(5));
++	decon_write(decon, DECON_WIN_CONTROL_0(0),
++		    DECON_WIN_ALPHA1_F(0xff) | DECON_WIN_ALPHA0_F(0xff) |
++		    DECON_WIN_FUNC_F(DECON_WIN_PD_FUNC_COPY));
++	decon_write(decon, DECON_WIN_START_POSITION(0),
++		    DECON_WIN_STRPTR_Y_F(0) | DECON_WIN_STRPTR_X_F(0));
++	decon_write(decon, DECON_WIN_END_POSITION(0),
++		    DECON_WIN_ENDPTR_Y_F(height - 1) |
++		    DECON_WIN_ENDPTR_X_F(width - 1));
++	decon_write(decon, DECON_WIN_PIXEL_COUNT(0), width * height);
++
++	/* TE from GPIO, route DECON (DISPIF0) to DSIM0 */
++	regmap_write(decon->disp_ss, DISP_SS_DPU_TE_SEL, DISP_SS_TE_FROM_GPIO);
++	regmap_write(decon->disp_ss, DISP_SS_DLMUX_CFG,
++		     DISP_SS_DLMUX_DISPIF0_DSIM0);
++
++	/* command mode: keep trigger masked until the first frame */
++	decon_write_mask(decon, DECON_HW_SW_TRIG_CONTROL,
++			 DECON_TRIG_AUTO_MASK_EN | DECON_HW_TRIG_SEL_FROM_DDI0,
++			 DECON_TRIG_AUTO_MASK_EN |
++			 DECON_HW_TRIG_SEL_MASK);
++	decon_trigger_set(decon, false);
++
++	/* clear stale interrupts, then enable frame done */
++	decon_write_mask(decon, DECON_INTERRUPT_PENDING, ~0U,
++			 DECON_INT_FRAME_DONE_PEND |
++			 DECON_INT_FRAME_START_PEND |
++			 DECON_INT_EXTRA_PEND);
++	decon_write(decon, DECON_EXTRA_INTERRUPT_PENDING, ~0U);
++	decon_write_mask(decon, DECON_INTERRUPT_ENABLE,
++			 DECON_INT_FRAME_START_EN | DECON_INT_FRAME_DONE_EN |
++			 DECON_INT_EN,
++			 DECON_INTERRUPT_ENABLE_MASK);
++
++	dev_info(decon->dev,
++		 "DECON_f initialized: %ux%u mode, dual-DSC path (per-enc %u)\n",
++		 width, height, width_per_enc);
++	return 0;
++}
++
++static int decon_hw_start(struct exynos8895_decon *decon)
++{
++	int ret;
++
++	/* run: DECON_EN + DECON_EN_F */
++	decon_write_mask(decon, DECON_GLOBAL_CONTROL,
++			 DECON_GLOBAL_CONTROL_DECON_EN |
++			 DECON_GLOBAL_CONTROL_DECON_EN_F,
++			 DECON_GLOBAL_CONTROL_DECON_EN |
++			 DECON_GLOBAL_CONTROL_DECON_EN_F);
++	decon_shadow_update_req(decon);
++
++	/*
++	 * Without HW TE the DECON enters run status as soon as the shadow
++	 * update is requested; with TE it waits for the first trigger.
++	 */
++	ret = decon_wait_run_status(decon, true);
++	if (ret)
++		dev_warn(decon->dev, "DECON run status timed out\n");
++
++	decon_trigger_set(decon, true);
++	return ret;
++}
++
++static void decon_hw_stop(struct exynos8895_decon *decon)
++{
++	u32 val;
++
++	decon_trigger_set(decon, false);
++	decon_write_mask(decon, DECON_GLOBAL_CONTROL, 0,
++			 DECON_GLOBAL_CONTROL_DECON_EN |
++			 DECON_GLOBAL_CONTROL_DECON_EN_F);
++	decon_shadow_update_req(decon);
++	readl_poll_timeout(decon->regs + DECON_GLOBAL_CONTROL, val,
++			   val & DECON_GLOBAL_CONTROL_IDLE_STATUS,
++			   100, DECON_IDLE_TIMEOUT_US);
++}
++
++/* ------------------------------------------------------------------ */
++/* IDMA_G0                                                             */
++/* ------------------------------------------------------------------ */
++
++static void idma_init(struct exynos8895_decon *decon)
++{
++	/* global clock gating for the DPU DMA blocks */
++	writel(readl(decon->dma_com + DPU_DMA_GLB_CGEN) |
++	       DPU_DMA_ALL_CGEN_MASK, decon->dma_com + DPU_DMA_GLB_CGEN);
++
++	/*
++	 * No IDMA software reset: downstream deliberately avoids SW-resets
++	 * in the DPU blocks, and a reset would wipe the plane state that
++	 * atomic_enable re-applies right after this function.
++	 */
++
++	/* G0 feeds window channel 1 (downstream dma_reg_set_ch_map(G0)) */
++	{
++		u32 v = readl(decon->dma_com + DPU_DMA_CH_MAP);
++
++		v &= ~0x3;
++		v |= 1;
++		writel(v, decon->dma_com + DPU_DMA_CH_MAP);
++	}
++
++	/* clock gates, clear and mask all DMA interrupts */
++	idma_write_mask(decon, IDMA_ENABLE,
++			IDMA_SFR_CLOCK_GATE_EN | IDMA_SRAM_CLOCK_GATE_EN,
++			IDMA_SFR_CLOCK_GATE_EN | IDMA_SRAM_CLOCK_GATE_EN);
++	idma_write_mask(decon, IDMA_IRQ, IDMA_ALL_IRQ_CLEAR, IDMA_ALL_IRQ_CLEAR);
++	idma_write_mask(decon, IDMA_IRQ, IDMA_ALL_IRQ_MASK, IDMA_ALL_IRQ_MASK);
++
++	/* opaque frame alpha */
++	idma_write_mask(decon, IDMA_OUT_CON, IDMA_OUT_FRAME_ALPHA_F(0xff),
++			IDMA_OUT_FRAME_ALPHA_MASK);
++}
++
++static void idma_setup_plane(struct exynos8895_decon *decon,
++			     struct drm_framebuffer *fb,
++			     dma_addr_t dma_addr,
++			     u32 src_w, u32 src_h, u32 crtc_x, u32 crtc_y,
++			     u32 dst_w, u32 dst_h)
++{
++	u32 fmt = IDMA_IMG_FORMAT_XRGB8888;
++
++	if (fb) {
++		switch (fb->format->format) {
++		case DRM_FORMAT_XRGB8888:
++			fmt = IDMA_IMG_FORMAT_XRGB8888;
++			break;
++		case DRM_FORMAT_ARGB8888:
++			fmt = IDMA_IMG_FORMAT_ARGB8888;
++			break;
++		case DRM_FORMAT_RGB565:
++			fmt = IDMA_IMG_FORMAT_RGB565;
++			break;
++		default:
++			fmt = IDMA_IMG_FORMAT_XRGB8888;
++			break;
++		}
++	}
++
++	idma_write_mask(decon, IDMA_IN_CON, IDMA_IMG_FORMAT_F(fmt),
++			IDMA_IMG_FORMAT_MASK);
++	idma_write(decon, IDMA_SRC_SIZE,
++		   IDMA_SRC_HEIGHT_F(src_h) | IDMA_SRC_WIDTH_F(src_w));
++	idma_write(decon, IDMA_SRC_OFFSET, 0);
++	idma_write(decon, IDMA_IMG_SIZE,
++		   IDMA_IMG_HEIGHT_F(src_h) | IDMA_IMG_WIDTH_F(src_w));
++	idma_write(decon, IDMA_IN_BASE_ADDR_Y, lower_32_bits(dma_addr));
++
++	/* DECON window 0 geometry */
++	decon_write(decon, DECON_WIN_START_POSITION(0),
++		    DECON_WIN_STRPTR_Y_F(crtc_y) | DECON_WIN_STRPTR_X_F(crtc_x));
++	decon_write(decon, DECON_WIN_END_POSITION(0),
++		    DECON_WIN_ENDPTR_Y_F(crtc_y + dst_h - 1) |
++		    DECON_WIN_ENDPTR_X_F(crtc_x + dst_w - 1));
++	decon_write(decon, DECON_WIN_PIXEL_COUNT(0), dst_w * dst_h);
++
++	/* latch IDMA shadow registers */
++	idma_write_mask(decon, IDMA_ENABLE, IDMA_SFR_UPDATE_FORCE,
++			IDMA_SFR_UPDATE_FORCE);
++}
++
++static void decon_heartbeat_timer(struct timer_list *t)
++{
++	struct exynos8895_decon *decon =
++		container_of(t, struct exynos8895_decon, heartbeat);
++
++	printk(KERN_INFO "decon heartbeat %d enabled=%d\n",
++	       decon->heartbeat_count++, decon->enabled);
++	if (decon->heartbeat_count < 200)
++		mod_timer(&decon->heartbeat,
++			  jiffies + msecs_to_jiffies(500));
++}
++
++/* ------------------------------------------------------------------ */
++/* interrupt                                                           */
++/* ------------------------------------------------------------------ */
++
++static irqreturn_t decon_irq_handler(int irq, void *dev_id)
++{
++	struct exynos8895_decon *decon = dev_id;
++	u32 pend;
++
++	if (!decon->enabled)
++		return IRQ_NONE;
++
++	pend = decon_read(decon, DECON_INTERRUPT_PENDING);
++
++	if (pend & DECON_INT_FRAME_START_PEND)
++		drm_crtc_handle_vblank(&decon->crtc);
++	if (pend & DECON_INT_FRAME_DONE_PEND)
++		complete(&decon->frame_done);
++
++	/*
++	 * Command mode: the flip's registers are latched at the TE-triggered
++	 * frame start that clears the shadow update request.  From then on
++	 * the old buffer is no longer read, so complete the event right
++	 * away (normally at frame start) instead of after the ~10 ms DSI
++	 * transfer; waiting for frame done made KWin miss every other TE.
++	 */
++	if (pend & (DECON_INT_FRAME_START_PEND | DECON_INT_FRAME_DONE_PEND)) {
++		spin_lock(&decon->drm.event_lock);
++		if (decon->event &&
++		    !(decon_read(decon, DECON_SHADOW_REG_UPDATE_REQ) &
++		      DECON_SHADOW_UPDATE_GLOBAL)) {
++			drm_crtc_send_vblank_event(&decon->crtc, decon->event);
++			drm_crtc_vblank_put(&decon->crtc);
++			decon->event = NULL;
++		}
++		spin_unlock(&decon->drm.event_lock);
++	}
++	if (pend & DECON_INT_EXTRA_PEND)
++		dev_err_ratelimited(decon->dev, "DPU extra interrupt pending\n");
++
++	decon_write_mask(decon, DECON_INTERRUPT_PENDING,
++			 pend & (DECON_INT_FRAME_DONE_PEND |
++				 DECON_INT_FRAME_START_PEND |
++				 DECON_INT_EXTRA_PEND),
++			 DECON_INT_FRAME_DONE_PEND |
++			 DECON_INT_FRAME_START_PEND |
++			 DECON_INT_EXTRA_PEND);
++
++	return IRQ_HANDLED;
++}
++
++/* ------------------------------------------------------------------ */
++/* plane                                                               */
++/* ------------------------------------------------------------------ */
++
++static const u32 decon_plane_formats[] = {
++	DRM_FORMAT_XRGB8888,
++	DRM_FORMAT_ARGB8888,
++	DRM_FORMAT_RGB565,
++};
++
++static int decon_plane_atomic_check(struct drm_plane *plane,
++				    struct drm_atomic_state *state)
++{
++	struct drm_plane_state *plane_state =
++		drm_atomic_get_new_plane_state(state, plane);
++	struct drm_crtc_state *crtc_state;
++
++	if (!plane_state->crtc)
++		return 0;
++
++	crtc_state = drm_atomic_get_new_crtc_state(state, plane_state->crtc);
++	return drm_atomic_helper_check_plane_state(plane_state, crtc_state,
++						   DRM_PLANE_NO_SCALING,
++						   DRM_PLANE_NO_SCALING,
++						   false, false);
++}
++
++static void decon_plane_apply(struct exynos8895_decon *decon,
++			      struct drm_plane_state *plane_state)
++{
++	struct drm_framebuffer *fb = plane_state->fb;
++	struct exynos8895_decon_gem *gem;
++	u32 src_w, src_h, dst_w, dst_h;
++
++	gem = to_decon_gem(fb->obj[0]);
++	src_w = drm_rect_width(&plane_state->src) >> 16;
++	src_h = drm_rect_height(&plane_state->src) >> 16;
++	dst_w = drm_rect_width(&plane_state->dst);
++	dst_h = drm_rect_height(&plane_state->dst);
++
++	if (src_w > DECON_MAX_WIDTH || src_h > DECON_MAX_HEIGHT)
++		return;
++
++	idma_setup_plane(decon, fb, gem->dma_addr + fb->offsets[0],
++			 src_w, src_h,
++			 plane_state->dst.x1, plane_state->dst.y1,
++			 dst_w, dst_h);
++}
++
++static void decon_plane_atomic_update(struct drm_plane *plane,
++				      struct drm_atomic_state *state)
++{
++	struct exynos8895_decon *decon = to_decon(plane->dev);
++	struct drm_plane_state *plane_state =
++		drm_atomic_get_new_plane_state(state, plane);
++
++	/*
++	 * If the CRTC is not running yet, the programming would be wiped
++	 * by idma_init()/decon_hw_init() in atomic_enable; the enable path
++	 * re-applies this plane state once the hardware is initialized.
++	 */
++	if (!decon->enabled || !plane_state->fb)
++		return;
++
++	decon_plane_apply(decon, plane_state);
++}
++
++static void decon_plane_atomic_disable(struct drm_plane *plane,
++				       struct drm_atomic_state *state)
++{
++	struct exynos8895_decon *decon = to_decon(plane->dev);
++
++	if (!decon->enabled)
++		return;
++
++	decon_write_mask(decon, DECON_DATA_PATH_CONTROL_0, 0, DECON_WIN_EN_F(0));
++	decon_shadow_update_req(decon);
++}
++
++static const struct drm_plane_helper_funcs decon_plane_helper_funcs = {
++	.atomic_check = decon_plane_atomic_check,
++	.atomic_update = decon_plane_atomic_update,
++	.atomic_disable = decon_plane_atomic_disable,
++};
++
++static const struct drm_plane_funcs decon_plane_funcs = {
++	.update_plane = drm_atomic_helper_update_plane,
++	.disable_plane = drm_atomic_helper_disable_plane,
++	.destroy = drm_plane_cleanup,
++	.reset = drm_atomic_helper_plane_reset,
++	.atomic_duplicate_state = drm_atomic_helper_plane_duplicate_state,
++	.atomic_destroy_state = drm_atomic_helper_plane_destroy_state,
++};
++
++/* ------------------------------------------------------------------ */
++/* CRTC                                                                */
++/* ------------------------------------------------------------------ */
++
++static void decon_crtc_atomic_enable(struct drm_crtc *crtc,
++				     struct drm_atomic_state *state)
++{
++	struct exynos8895_decon *decon = to_decon(crtc->dev);
++	struct drm_display_mode *mode = &crtc->state->adjusted_mode;
++	int ret;
++
++	dev_info(decon->dev, "CRTC enable: step clk\n");
++	clk_prepare_enable(decon->dpu_bus);
++	dev_info(decon->dev, "CRTC enable: step gates\n");
++	decon_setup_clocks(decon);
++
++	dev_info(decon->dev, "CRTC enable: step idma\n");
++	idma_init(decon);
++
++	dev_info(decon->dev, "CRTC enable: step hw_init\n");
++	ret = decon_hw_init(decon, mode);
++	if (ret)
++		goto out_clk;
++
++	/*
++	 * idma_init()/decon_hw_init() may clobber IDMA/window state that a
++	 * plane update for this commit already programmed; re-apply the
++	 * new plane state now that the hardware is initialized.
++	 */
++	{
++		struct drm_plane_state *plane_state =
++			drm_atomic_get_new_plane_state(state, &decon->plane);
++
++		if (plane_state && plane_state->fb)
++			decon_plane_apply(decon, plane_state);
++		else
++			decon_write_mask(decon, DECON_DATA_PATH_CONTROL_0, 0,
++					 DECON_WIN_EN_F(0));
++	}
++
++	/*
++	 * Coordinated DSC handoff: the bridge chain pre_enable already ran
++	 * the panel prepare (PPS + TE programming), so the DSIM can now
++	 * switch from the Stage 2 non-DSC probe config to the
++	 * compressed-stream scanout config before the first trigger.
++	 * Non-fatal for now.
++	 */
++	{
++		int dsc_ret;
++
++		dev_info(decon->dev, "CRTC enable: step dsc handoff\n");
++		dsc_ret = exynos8895_dsim_enable_dsc(decon->panel->dev->parent);
++		dev_info(decon->dev, "DSIM DSC handoff: %d\n", dsc_ret);
++	}
++
++	dev_info(decon->dev, "CRTC enable: step start\n");
++	decon->enabled = true;
++	enable_irq(decon->irq);
++
++	decon_hw_start(decon);
++	drm_crtc_vblank_on(crtc);
++	return;
++
++out_clk:
++	clk_disable_unprepare(decon->dpu_bus);
++}
++
++static void decon_crtc_atomic_disable(struct drm_crtc *crtc,
++				      struct drm_atomic_state *state)
++{
++	struct exynos8895_decon *decon = to_decon(crtc->dev);
++
++	if (!decon->enabled)
++		return;
++
++	drm_crtc_vblank_off(crtc);
++	disable_irq(decon->irq);
++	decon_hw_stop(decon);
++	decon->enabled = false;
++
++	spin_lock_irq(&crtc->dev->event_lock);
++	if (decon->event) {
++		drm_crtc_send_vblank_event(crtc, decon->event);
++		drm_crtc_vblank_put(crtc);
++		decon->event = NULL;
++	}
++	if (crtc->state->event && !crtc->state->active) {
++		drm_crtc_send_vblank_event(crtc, crtc->state->event);
++		crtc->state->event = NULL;
++	}
++	spin_unlock_irq(&crtc->dev->event_lock);
++
++	clk_disable_unprepare(decon->dpu_bus);
++}
++
++static void decon_crtc_atomic_flush(struct drm_crtc *crtc,
++				    struct drm_atomic_state *state)
++{
++	struct exynos8895_decon *decon = to_decon(crtc->dev);
++	struct drm_pending_vblank_event *event = crtc->state->event;
++
++	if (!decon->enabled) {
++		/* CRTC off: nothing will scan out, complete right away */
++		if (event) {
++			spin_lock_irq(&crtc->dev->event_lock);
++			drm_crtc_send_vblank_event(crtc, event);
++			spin_unlock_irq(&crtc->dev->event_lock);
++			crtc->state->event = NULL;
++		}
++		return;
++	}
++
++	/*
++	 * The HW trigger stays armed while the CRTC is on, so every TE
++	 * sends a frame; request the shadow update and let the frame-done
++	 * interrupt complete the event once the new state is on screen.
++	 */
++	if (event) {
++		WARN_ON(drm_crtc_vblank_get(crtc));
++		spin_lock_irq(&crtc->dev->event_lock);
++		decon->event = event;
++		spin_unlock_irq(&crtc->dev->event_lock);
++		crtc->state->event = NULL;
++	}
++
++	decon_shadow_update_req(decon);
++}
++
++static const struct drm_crtc_helper_funcs decon_crtc_helper_funcs = {
++	.atomic_enable = decon_crtc_atomic_enable,
++	.atomic_disable = decon_crtc_atomic_disable,
++	.atomic_flush = decon_crtc_atomic_flush,
++};
++
++/*
++ * The frame-done interrupt is enabled for as long as the CRTC runs (the
++ * trigger stays armed), so vblank reporting needs no extra switching.
++ */
++static int decon_crtc_enable_vblank(struct drm_crtc *crtc)
++{
++	return 0;
++}
++
++static void decon_crtc_disable_vblank(struct drm_crtc *crtc)
++{
++}
++
++static const struct drm_crtc_funcs decon_crtc_funcs = {
++	.set_config = drm_atomic_helper_set_config,
++	.destroy = drm_crtc_cleanup,
++	.page_flip = drm_atomic_helper_page_flip,
++	.reset = drm_atomic_helper_crtc_reset,
++	.atomic_duplicate_state = drm_atomic_helper_crtc_duplicate_state,
++	.atomic_destroy_state = drm_atomic_helper_crtc_destroy_state,
++	.enable_vblank = decon_crtc_enable_vblank,
++	.disable_vblank = decon_crtc_disable_vblank,
++};
++
++/* ------------------------------------------------------------------ */
++/* encoder / DRM driver                                                */
++/* ------------------------------------------------------------------ */
++
++static void decon_encoder_atomic_enable(struct drm_encoder *encoder,
++					struct drm_atomic_state *state)
++{
++	dev_info(encoder->dev->dev, "encoder atomic_enable reached\n");
++}
++
++static const struct drm_encoder_helper_funcs decon_encoder_helper_funcs = {
++	.atomic_enable = decon_encoder_atomic_enable,
++};
++
++static const struct drm_encoder_funcs decon_encoder_funcs = {
++	.destroy = drm_encoder_cleanup,
++};
++
++#if IS_ENABLED(CONFIG_DRM_FBDEV_EMULATION)
++/*
++ * fbdev emulation.
++ *
++ * The generic fbdev helpers in this tree only support shmem or DMA-heap
++ * GEM objects; this driver uses its own contiguous GEM objects, so the
++ * probe below mirrors drm_fbdev_dma_driver_fbdev_probe() without the
++ * dma-helper specific bits.
++ */
++
++static int decon_fbdev_fb_open(struct fb_info *info, int user)
++{
++	struct drm_fb_helper *fb_helper = info->par;
++
++	if (user && !try_module_get(fb_helper->dev->driver->fops->owner))
++		return -ENODEV;
++
++	return 0;
++}
++
++static int decon_fbdev_fb_release(struct fb_info *info, int user)
++{
++	struct drm_fb_helper *fb_helper = info->par;
++
++	if (user)
++		module_put(fb_helper->dev->driver->fops->owner);
++
++	return 0;
++}
++
++static int decon_fbdev_fb_mmap(struct fb_info *info, struct vm_area_struct *vma)
++{
++	struct drm_fb_helper *fb_helper = info->par;
++
++	return drm_gem_prime_mmap(fb_helper->buffer->gem, vma);
++}
++
++static void decon_fbdev_fb_destroy(struct fb_info *info)
++{
++	struct drm_fb_helper *fb_helper = info->par;
++
++	if (!fb_helper->dev)
++		return;
++
++	drm_fb_helper_fini(fb_helper);
++
++	drm_client_buffer_vunmap(fb_helper->buffer);
++	drm_client_buffer_delete(fb_helper->buffer);
++	drm_client_release(&fb_helper->client);
++}
++
++static const struct fb_ops decon_fbdev_fb_ops = {
++	.owner = THIS_MODULE,
++	.fb_open = decon_fbdev_fb_open,
++	.fb_release = decon_fbdev_fb_release,
++	__FB_DEFAULT_SYSMEM_OPS_RDWR,
++	DRM_FB_HELPER_DEFAULT_OPS,
++	__FB_DEFAULT_SYSMEM_OPS_DRAW,
++	.fb_mmap = decon_fbdev_fb_mmap,
++	.fb_destroy = decon_fbdev_fb_destroy,
++};
++
++static int decon_fbdev_probe(struct drm_fb_helper *fb_helper,
++			     struct drm_fb_helper_surface_size *sizes)
++{
++	struct drm_client_dev *client = &fb_helper->client;
++	struct drm_device *dev = fb_helper->dev;
++	struct drm_client_buffer *buffer;
++	struct drm_framebuffer *fb;
++	struct fb_info *info = fb_helper->info;
++	struct iosys_map map;
++	u32 format;
++	int ret;
++
++	dev_info(dev->dev, "fbdev probe: enter %ux%u bpp%u\n",
++		 sizes->surface_width, sizes->surface_height,
++		 sizes->surface_bpp);
++	format = drm_driver_legacy_fb_format(dev, sizes->surface_bpp,
++					     sizes->surface_depth);
++	dev_info(dev->dev, "fbdev probe: buffer create fmt 0x%x\n", format);
++	buffer = drm_client_buffer_create_dumb(client, sizes->surface_width,
++					       sizes->surface_height, format);
++	if (IS_ERR(buffer))
++		return PTR_ERR(buffer);
++
++	fb = buffer->fb;
++
++	dev_info(dev->dev, "fbdev probe: vmap\n");
++	ret = drm_client_buffer_vmap(buffer, &map);
++	if (ret)
++		goto err_buffer_delete;
++	if (drm_WARN_ON(dev, map.is_iomem)) {
++		ret = -ENODEV;
++		goto err_buffer_vunmap;
++	}
++
++	fb_helper->buffer = buffer;
++	fb_helper->fb = fb;
++
++	drm_fb_helper_fill_info(info, fb_helper, sizes);
++
++	info->fbops = &decon_fbdev_fb_ops;
++	info->flags |= FBINFO_VIRTFB;
++	info->screen_size = sizes->surface_height * fb->pitches[0];
++	info->screen_buffer = map.vaddr;
++	/* vaddr is a write-combine remap; report the real DMA address */
++	info->fix.smem_start = to_decon_gem(buffer->gem)->dma_addr;
++	info->fix.smem_len = info->screen_size;
++
++	dev_info(dev->dev, "fbdev probe: done, registering console\n");
++	return 0;
++
++err_buffer_vunmap:
++	drm_client_buffer_vunmap(buffer);
++err_buffer_delete:
++	drm_client_buffer_delete(buffer);
++	return ret;
++}
++#endif /* CONFIG_DRM_FBDEV_EMULATION */
++
++static const struct drm_driver decon_drm_driver = {
++	.driver_features = DRIVER_MODESET | DRIVER_GEM | DRIVER_ATOMIC,
++	.dumb_create = decon_dumb_create,
++#if IS_ENABLED(CONFIG_DRM_FBDEV_EMULATION)
++	.fbdev_probe = decon_fbdev_probe,
++#endif
++	.fops = &decon_drm_fops,
++	/* "exynos" lets Mesa pair this KMS device with panfrost (kmsro) */
++	.name = "exynos",
++	.desc = "Exynos 8895 DECON_f display driver",
++	.major = 1,
++	.minor = 0,
++};
++
++static int decon_mode_config_atomic_check(struct drm_device *dev,
++					  struct drm_atomic_state *state)
++{
++	int ret = drm_atomic_helper_check(dev, state);
++
++	dev_dbg(dev->dev, "atomic check ret=%d\n", ret);
++	return ret;
++}
++
++static int decon_mode_config_atomic_commit(struct drm_device *dev,
++					   struct drm_atomic_state *state,
++					   bool nonblock)
++{
++	dev_dbg(dev->dev, "atomic commit nonblock=%d\n", nonblock);
++	return drm_atomic_helper_commit(dev, state, nonblock);
++}
++
++static const struct drm_mode_config_funcs decon_mode_config_funcs = {
++	.fb_create = drm_gem_fb_create,
++	.atomic_check = decon_mode_config_atomic_check,
++	.atomic_commit = decon_mode_config_atomic_commit,
++};
++
++/* ------------------------------------------------------------------ */
++/* probe / remove                                                      */
++/* ------------------------------------------------------------------ */
++
++static struct drm_panel *decon_find_panel(struct device *dev)
++{
++	struct device_node *dsim_np;
++	struct device_node *child;
++	struct drm_panel *panel = NULL;
++	bool defer = false;
++
++	dsim_np = of_find_compatible_node(NULL, NULL, "samsung,exynos8895-dsim");
++	if (!dsim_np)
++		return ERR_PTR(-EPROBE_DEFER);
++
++	for_each_available_child_of_node(dsim_np, child) {
++		panel = of_drm_find_panel(child);
++		if (!IS_ERR(panel))
++			break;
++		if (PTR_ERR(panel) == -EPROBE_DEFER)
++			defer = true;
++		panel = NULL;
++	}
++
++	of_node_put(dsim_np);
++
++	if (!panel)
++		return ERR_PTR(defer ? -EPROBE_DEFER : -ENODEV);
++
++	return panel;
++}
++
++static int exynos8895_decon_probe(struct platform_device *pdev)
++{
++	struct device *dev = &pdev->dev;
++	struct exynos8895_decon *decon;
++	struct drm_panel *panel;
++	struct drm_bridge *bridge;
++	struct drm_encoder *encoder;
++	struct drm_connector *connector;
++	int ret;
++
++	decon = devm_drm_dev_alloc(dev, &decon_drm_driver,
++				   struct exynos8895_decon, drm);
++	if (IS_ERR(decon))
++		return PTR_ERR(decon);
++
++	decon->dev = dev;
++	init_completion(&decon->frame_done);
++
++	ret = drmm_mode_config_init(&decon->drm);
++	if (ret)
++		return ret;
++
++	decon->regs = devm_platform_ioremap_resource_byname(pdev, "decon");
++	if (IS_ERR(decon->regs))
++		return dev_err_probe(dev, PTR_ERR(decon->regs),
++				     "failed to map DECON registers\n");
++
++	decon->idma = devm_platform_ioremap_resource_byname(pdev, "idma");
++	if (IS_ERR(decon->idma))
++		return dev_err_probe(dev, PTR_ERR(decon->idma),
++				     "failed to map IDMA registers\n");
++
++	decon->dma_com = devm_platform_ioremap_resource_byname(pdev, "dma");
++	if (IS_ERR(decon->dma_com))
++		return dev_err_probe(dev, PTR_ERR(decon->dma_com),
++				     "failed to map DPU DMA registers\n");
++
++	{
++		struct resource *res;
++
++		res = platform_get_resource_byname(pdev, IORESOURCE_MEM, "cmu");
++		if (!res)
++			return dev_err_probe(dev, -ENODEV,
++					     "failed to get DPU0 CMU registers\n");
++
++		/*
++		 * The DSIM driver already owns the DPU0 CMU resource, so this
++		 * shared range must be mapped without claiming it again.
++		 */
++		decon->cmu = devm_ioremap(dev, res->start, resource_size(res));
++		if (!decon->cmu)
++			return dev_err_probe(dev, -ENOMEM,
++					     "failed to map DPU0 CMU registers\n");
++	}
++
++	decon->disp_ss = syscon_regmap_lookup_by_phandle(dev->of_node,
++							 "samsung,disp-syscon");
++	if (IS_ERR(decon->disp_ss))
++		return dev_err_probe(dev, PTR_ERR(decon->disp_ss),
++				     "failed to get disp-ss syscon\n");
++
++	decon->dpu_bus = devm_clk_get(dev, "dpu_bus");
++	if (IS_ERR(decon->dpu_bus))
++		return dev_err_probe(dev, PTR_ERR(decon->dpu_bus),
++				     "failed to get dpu_bus clock\n");
++
++	panel = decon_find_panel(dev);
++	if (IS_ERR(panel))
++		return dev_err_probe(dev, PTR_ERR(panel),
++				     "failed to find DSI panel\n");
++	decon->panel = panel;
++
++	/*
++	 * The bootloader leaves DECON_f running and its frame-done interrupt
++	 * firing.  Halt it and mask/clear its interrupt sources before
++	 * registering the handler, otherwise the stale storm trips "nobody
++	 * cared" and the core disables the line.  Done only on the
++	 * successful probe path so deferred retries never touch registers.
++	 */
++	{
++		u32 val;
++
++		decon_write_mask(decon, DECON_INTERRUPT_ENABLE, 0,
++				 DECON_INTERRUPT_ENABLE_MASK);
++		decon_write_mask(decon, DECON_INTERRUPT_PENDING, ~0U,
++				 DECON_INT_FRAME_DONE_PEND |
++				 DECON_INT_FRAME_START_PEND |
++				 DECON_INT_EXTRA_PEND);
++		decon_write(decon, DECON_EXTRA_INTERRUPT_PENDING, ~0U);
++		decon_write_mask(decon, DECON_GLOBAL_CONTROL, 0,
++				 DECON_GLOBAL_CONTROL_DECON_EN |
++				 DECON_GLOBAL_CONTROL_DECON_EN_F);
++		readl_poll_timeout(decon->regs + DECON_GLOBAL_CONTROL, val,
++				   val & DECON_GLOBAL_CONTROL_IDLE_STATUS,
++				   100, DECON_IDLE_TIMEOUT_US);
++		dev_info(dev, "DECON_f halted from bootloader state (GLOBAL_CONTROL 0x%x)\n",
++			 readl(decon->regs + DECON_GLOBAL_CONTROL));
++	}
++
++	/* frame done interrupt */
++	decon->irq = platform_get_irq(pdev, 1);
++	if (decon->irq < 0)
++		return decon->irq;
++
++	ret = devm_request_irq(dev, decon->irq, decon_irq_handler, 0,
++			       dev_name(dev), decon);
++	if (ret)
++		return dev_err_probe(dev, ret, "failed to request irq\n");
++	disable_irq(decon->irq);
++
++	bridge = devm_drm_panel_bridge_add(dev, panel);
++	if (IS_ERR(bridge))
++		return dev_err_probe(dev, PTR_ERR(bridge),
++				     "failed to create panel bridge\n");
++
++	/* primary plane */
++	ret = drm_universal_plane_init(&decon->drm, &decon->plane, 0,
++				       &decon_plane_funcs,
++				       decon_plane_formats,
++				       ARRAY_SIZE(decon_plane_formats),
++				       NULL, DRM_PLANE_TYPE_PRIMARY, NULL);
++	if (ret)
++		return ret;
++
++	drm_plane_helper_add(&decon->plane, &decon_plane_helper_funcs);
++
++	/* CRTC */
++	ret = drm_crtc_init_with_planes(&decon->drm, &decon->crtc,
++					&decon->plane, NULL,
++					&decon_crtc_funcs, NULL);
++	if (ret)
++		goto err_plane;
++
++	drm_crtc_helper_add(&decon->crtc, &decon_crtc_helper_funcs);
++
++	/* encoder + panel bridge connector */
++	encoder = &decon->encoder;
++	ret = drm_encoder_init(&decon->drm, encoder, &decon_encoder_funcs,
++			       DRM_MODE_ENCODER_DSI, NULL);
++	if (ret)
++		goto err_crtc;
++
++	encoder->possible_crtcs = drm_crtc_mask(&decon->crtc);
++	drm_encoder_helper_add(encoder, &decon_encoder_helper_funcs);
++
++	ret = drm_bridge_attach(encoder, bridge, NULL,
++				DRM_BRIDGE_ATTACH_NO_CONNECTOR);
++	if (ret)
++		goto err_encoder;
++
++	connector = drm_bridge_connector_init(&decon->drm, encoder);
++	if (IS_ERR(connector)) {
++		ret = PTR_ERR(connector);
++		goto err_encoder;
++	}
++
++	ret = drm_connector_attach_encoder(connector, encoder);
++	if (ret)
++		goto err_encoder;
++
++	decon->drm.mode_config.funcs = &decon_mode_config_funcs;
++	decon->drm.mode_config.fb_modifiers_not_supported = true;
++	decon->drm.mode_config.min_width = 16;
++	decon->drm.mode_config.min_height = 16;
++	decon->drm.mode_config.max_width = DECON_MAX_WIDTH;
++	decon->drm.mode_config.max_height = DECON_MAX_HEIGHT;
++
++	ret = drm_vblank_init(&decon->drm, 1);
++	if (ret)
++		goto err_encoder;
++
++	drm_mode_config_reset(&decon->drm);
++
++	platform_set_drvdata(pdev, decon);
++
++	ret = drm_dev_register(&decon->drm, 0);
++	if (ret)
++		return dev_err_probe(dev, ret, "failed to register DRM device\n");
++
++	timer_setup(&decon->heartbeat, decon_heartbeat_timer, 0);
++	mod_timer(&decon->heartbeat, jiffies + msecs_to_jiffies(1000));
++
++#if IS_ENABLED(CONFIG_DRM_FBDEV_EMULATION)
++	drm_client_setup(&decon->drm, NULL);
++#endif
++
++	dev_info(dev, "exynos8895 decon registered\n");
++	return 0;
++
++err_encoder:
++	drm_encoder_cleanup(encoder);
++err_crtc:
++	drm_crtc_cleanup(&decon->crtc);
++err_plane:
++	drm_plane_cleanup(&decon->plane);
++	return ret;
++}
++
++static void exynos8895_decon_remove(struct platform_device *pdev)
++{
++	struct exynos8895_decon *decon = platform_get_drvdata(pdev);
++
++	drm_atomic_helper_shutdown(&decon->drm);
++	drm_dev_unregister(&decon->drm);
++}
++
++static const struct of_device_id exynos8895_decon_of_match[] = {
++	{ .compatible = "samsung,exynos8895-decon" },
++	{ /* sentinel */ }
++};
++MODULE_DEVICE_TABLE(of, exynos8895_decon_of_match);
++
++static struct platform_driver exynos8895_decon_driver = {
++	.probe = exynos8895_decon_probe,
++	.remove = exynos8895_decon_remove,
++	.driver = {
++		.name = "exynos8895-decon",
++		.of_match_table = exynos8895_decon_of_match,
++	},
++};
++module_platform_driver(exynos8895_decon_driver);
++
++MODULE_AUTHOR("The postmarketOS project");
++MODULE_DESCRIPTION("Exynos 8895 DECON_f DRM/KMS driver");
++MODULE_LICENSE("GPL");
+diff --git a/drivers/gpu/drm/bridge/exynos8895-dsim.c b/drivers/gpu/drm/bridge/exynos8895-dsim.c
+new file mode 100644
+index 000000000..687206ddc
+--- /dev/null
++++ b/drivers/gpu/drm/bridge/exynos8895-dsim.c
+@@ -0,0 +1,1054 @@
++// SPDX-License-Identifier: GPL-2.0-only
++/*
++ * Exynos 8895 DSIM0 MIPI-DSI host driver
++ *
++ * Minimal command-mode DSI host sufficient to probe, reset, initialize
++ * and read the Galaxy Note 8 (greatlte) S6E3HA6 panel.  The register
++ * map and init sequence follow the downstream Exynos 8895 DSIM
++ * (drivers/video/fbdev/exynos/dpu, CONFIG_SOC_EXYNOS8895 path), not the
++ * legacy DSIM found in samsung-dsim.c.
++ *
++ * Copyright (c) 2026 The postmarketOS project
++ */
++
++#include <linux/bitops.h>
++#include <linux/clk.h>
++#include <linux/completion.h>
++#include <linux/delay.h>
++#include <linux/err.h>
++#include <linux/interrupt.h>
++#include <linux/io.h>
++#include <linux/iopoll.h>
++#include <linux/mfd/syscon.h>
++#include <linux/module.h>
++#include <linux/mutex.h>
++#include <linux/of.h>
++#include <linux/of_platform.h>
++#include <linux/platform_device.h>
++#include <linux/regmap.h>
++#include <linux/spinlock.h>
++
++#include <drm/drm_mipi_dsi.h>
++
++#include <video/mipi_display.h>
++
++#include "exynos8895-dsim.h"
++
++/* DSIM register offsets (Exynos 8895) */
++#define DSIM_SWRST			0x04
++#define DSIM_DPHY_RST			BIT(16)
++#define DSIM_SWRST_RESET		BIT(0)
++
++#define DSIM_LINK_STATUS3		0x14
++#define DSIM_LINK_STATUS3_PLL_STABLE	BIT(0)
++
++#define DSIM_CLK_CTRL			0x20
++#define DSIM_CLK_CTRL_NONCONT_CLOCK_LANE	BIT(25)
++#define DSIM_CLK_CTRL_TX_REQUEST_HSCLK	BIT(20)
++#define DSIM_CLK_CTRL_WORDCLK_EN	BIT(17)
++#define DSIM_CLK_CTRL_ESCCLK_EN		BIT(16)
++#define DSIM_CLK_CTRL_LANE_ESCCLK_EN(x)	((x) << 8)
++#define DSIM_CLK_CTRL_LANE_ESCCLK_EN_MASK	(0x1f << 8)
++#define DSIM_CLK_CTRL_ESC_PRESCALER(x)	((x) << 0)
++#define DSIM_CLK_CTRL_ESC_PRESCALER_MASK	(0xff << 0)
++
++#define DSIM_TIMEOUT			0x28
++#define DSIM_TIMEOUT_BTA_TOUT(x)	((x) << 16)
++#define DSIM_TIMEOUT_LPDR_TOUT(x)	((x) << 0)
++
++#define DSIM_ESCMODE			0x2c
++#define DSIM_ESCMODE_STOP_STATE_CNT(x)	((x) << 21)
++
++#define DSIM_NUM_OF_TRANSFER		0x30
++#define DSIM_UNDERRUN_CTRL		0x34
++#define DSIM_THRESHOLD			0x38
++#define DSIM_RESOL			0x3c
++#define DSIM_RESOL_VRESOL(x)		(((x) & 0x1fff) << 16)
++#define DSIM_RESOL_HRESOL(x)		(((x) & 0x1fff) << 0)
++
++#define DSIM_CONFIG			0x4c
++#define DSIM_CONFIG_CPRS_EN		BIT(19)
++#define DSIM_CONFIG_VIDEO_MODE		BIT(18)
++#define DSIM_CONFIG_PIXEL_FORMAT_MASK	(0x3 << 13)
++#define DSIM_CONFIG_PER_FRAME_READ_EN	BIT(8)
++#define DSIM_CONFIG_EOTP_EN		BIT(7)
++#define DSIM_CONFIG_NUM_OF_DATA_LANE(x)	((x) << 5)
++#define DSIM_CONFIG_NUM_OF_DATA_LANE_MASK	(0x3 << 5)
++#define DSIM_CONFIG_LANES_EN_MASK	0x1f
++
++#define DSIM_INTSRC			0x50
++#define DSIM_INTSRC_SFR_PH_FIFO_EMPTY	BIT(28)
++#define DSIM_INTSRC_RX_DATA_DONE	BIT(18)
++#define DSIM_INTSRC_ERR_RX_ECC		BIT(15)
++#define DSIM_INTSRC_UNDER_RUN		BIT(19)
++#define DSIM_INTMSK			0x54
++#define DSIM_INTMSK_SW_RST_RELEASE	BIT(30)
++#define DSIM_INTMSK_SFR_PL_FIFO_EMPTY	BIT(29)
++#define DSIM_INTMSK_SFR_PH_FIFO_EMPTY	BIT(28)
++#define DSIM_INTMSK_FRAME_DONE		BIT(24)
++#define DSIM_INTMSK_INVALID_SFR_VALUE	BIT(23)
++#define DSIM_INTMSK_UNDER_RUN		BIT(19)
++#define DSIM_INTMSK_RX_DATA_DONE	BIT(18)
++#define DSIM_INTMSK_ERR_RX_ECC		BIT(15)
++#define DSIM_INTMSK_VT_STATUS		BIT(13)
++
++#define DSIM_PKTHDR			0x58
++#define DSIM_PKTHDR_BTA_TYPE(x)		((x) << 24)
++#define DSIM_PKTHDR_DATA1(x)		((x) << 16)
++#define DSIM_PKTHDR_DATA0(x)		((x) << 8)
++#define DSIM_PKTHDR_ID(x)		((x) << 0)
++#define DSIM_PKTHDR_DATA_MASK		0x1ffffff
++
++#define DSIM_CPRS_CTRL			0x74
++#define DSIM_CPRS_CTRL_MULI_SLICE_PACKET	BIT(3)
++#define DSIM_CPRS_CTRL_NUM_OF_SLICE(x)	((x) << 0)
++#define DSIM_CPRS_CTRL_NUM_OF_SLICE_MASK	(0x7 << 0)
++
++#define DSIM_SLICE01			0x78
++#define DSIM_SLICE23			0x7c
++#define DSIM_SLICE01_SIZE_OF_SLICE1(x)	((x) << 16)
++#define DSIM_SLICE01_SIZE_OF_SLICE0(x)	((x) << 0)
++
++#define DSIM_PAYLOAD			0x5c
++#define DSIM_RXFIFO			0x60
++
++#define DSIM_SFR_CTRL			0x64
++#define DSIM_CMD_TE_CTRL0		0x84
++#define DSIM_CMD_TE_CTRL1		0x88
++
++#define DSIM_FIFOCTRL			0x68
++#define DSIM_FIFOCTRL_EMPTY_RX		BIT(12)
++#define DSIM_FIFOCTRL_EMPTY_PH_SFR	BIT(10)
++#define DSIM_FIFOCTRL_EMPTY_PL_SFR	BIT(8)
++
++#define DSIM_PLLCTRL			0xa0
++#define DSIM_PLLCTRL_PLL_EN		BIT(23)
++#define DSIM_PLLCTRL_PMS_MASK		0x7ffff
++
++#define DSIM_PLL_CTRL1			0xa4
++#define DSIM_PLL_CTRL2			0xa8
++#define DSIM_PLLTMR			0xac
++#define DSIM_PHYCTRL_B1			0xb0
++#define DSIM_PHYCTRL_B2			0xb4
++#define DSIM_PHYCTRL_B3			0xb8
++#define DSIM_PHYCTRL_B4			0xbc
++#define DSIM_PHYCTRL_M1			0xc0
++#define DSIM_PHYCTRL_M2			0xc4
++#define DSIM_PHYCTRL_M3			0xc8
++#define DSIM_PHYCTRL_M4			0xcc
++#define DSIM_PHY_TIMING			0xd0
++#define DSIM_PHY_TIMING1		0xd4
++#define DSIM_PHY_TIMING2		0xd8
++
++/* DPU0 CMU (second reg range) */
++#define DPU0_CMU_USER_MUX		0x100
++#define DPU0_CMU_USER_MUX_SW_USER	BIT(4)
++#define DPU0_CMU_USER_MUX_BUSY		BIT(7)
++#define DPU0_CMU_BUSP_DIV		0x1808
++#define DPU0_CMU_BUSP_DIV_AUTOGATE	BIT(28)
++#define DPU0_CMU_DPU1_BUSD_GATE	0x2000
++#define DPU0_CMU_DPU1_BUSP_GATE	0x2004
++#define DPU0_CMU_DPU0_PCLK_GATE	0x2008
++#define DPU0_CMU_AXI2APB_P0_GATE	0x2054
++#define DPU0_CMU_AXI2APB_P1_GATE	0x2058
++#define DPU0_CMU_DSIM0_PCLK_GATE	0x204c
++#define DPU0_CMU_LHM_AXI_P0_GATE	0x20a8
++#define DPU0_CMU_RSTNSYNC_BUSP_GATE	0x20dc
++#define DPU0_CMU_GATE_ON		(0x3 << 20)
++
++/* DPU1 CMU (DSIM0 is in pd_dpu1) */
++#define DPU1_CMU_BUSD_USER_MUX		0x100
++#define DPU1_CMU_BUSP_USER_MUX		0x120
++#define DPU1_CMU_USER_MUX_SW_USER	BIT(4)
++#define DPU1_CMU_USER_MUX_BUSY		BIT(7)
++#define DPU1_CMU_DPU1_PCLK_GATE	0x2000
++#define DPU1_CMU_GATE_ON		(0x3 << 20)
++
++/* PMU */
++#define PMU_DPU0_CONFIGURATION		0x4060
++#define PMU_DPU0_STATUS			0x4064
++#define PMU_DPU1_CONFIGURATION		0x4080
++#define PMU_DPU1_STATUS			0x4084
++#define PMU_MIPI_PHY_M4S4_ISOLATION	0x710
++#define PMU_LOCAL_PWR_CFG		0xf
++
++/* DISP_SS sysreg */
++#define DISP_SS_LPMUX			0x0
++#define DISP_SS_LPMUX_VAL		0x1201
++#define DISP_SS_PHY_OWNER		0x8
++#define DISP_SS_PHY_OWNER_DSI		0
++
++/* PLL / panel constants (greatlte S6E3HA6, 26 MHz ref -> 898 MHz HS) */
++#define DSIM_PLL_P			5
++#define DSIM_PLL_M			691
++#define DSIM_PLL_S			2
++#define DSIM_ESC_PRESCALER		3	/* 56 MHz / 3 = ~18.7 MHz */
++#define DSIM_PLL_STABLE_TIME		0x13880
++#define DSIM_STOP_STATE_CNT		0xa
++#define DSIM_BTA_TIMEOUT		0xff
++#define DSIM_LP_RX_TIMEOUT		0xffff
++#define DSIM_CMD_UNDERRUN_LP_REF	3022
++#define DSIM_HRESOL			1440
++#define DSIM_VRESOL			2960
++#define DSIM_THRESHOLD_LEVEL		(DSIM_HRESOL / 3)	/* DSC */
++#define DSIM_NUM_OF_TRANSFER_LINE	DSIM_VRESOL
++
++#define DSIM_INT_UNMASK		(DSIM_INTMSK_SW_RST_RELEASE | \
++				 DSIM_INTMSK_SFR_PL_FIFO_EMPTY | \
++				 DSIM_INTMSK_SFR_PH_FIFO_EMPTY | \
++				 DSIM_INTMSK_FRAME_DONE | \
++				 DSIM_INTMSK_INVALID_SFR_VALUE | \
++				 DSIM_INTMSK_RX_DATA_DONE | \
++				 DSIM_INTMSK_ERR_RX_ECC | \
++				 DSIM_INTMSK_VT_STATUS)
++
++#define DSIM_WR_TIMEOUT_MS		250
++#define DSIM_RD_TIMEOUT_MS		100
++#define DSIM_RX_FIFO_DEPTH		64
++
++/*
++ * DSC scanout configuration: 2 slices of 720px -> 480 bytes per line at
++ * 8bpp (720 * 8 / 12), matching the S6E3HA6 PPS (GREAT_A2_S3).
++ */
++#define DSIM_DSC_NUM_OF_SLICE		2
++#define DSIM_DSC_SIZE_OF_SLICE		720
++#define DSIM_DSC_BYTES_PER_LINE		480
++
++struct exynos8895_dsim {
++	struct device *dev;
++	struct mipi_dsi_host host;
++
++	void __iomem *regs;
++	void __iomem *cmu;
++	void __iomem *cmu1;
++
++	struct regmap *pmu;
++	struct regmap *disp_ss;
++
++	struct clk *dpu_bus;
++	int irq;
++
++	struct mutex cmd_lock;
++	spinlock_t slock;
++	struct completion ph_wr_comp;
++	struct completion rd_comp;
++
++	bool powered;
++	bool attached;
++};
++
++static inline struct exynos8895_dsim *host_to_dsim(struct mipi_dsi_host *host)
++{
++	return container_of(host, struct exynos8895_dsim, host);
++}
++
++static inline void dsim_write(struct exynos8895_dsim *dsim, u32 reg, u32 val)
++{
++	writel(val, dsim->regs + reg);
++}
++
++static inline u32 dsim_read(struct exynos8895_dsim *dsim, u32 reg)
++{
++	return readl(dsim->regs + reg);
++}
++
++static inline void dsim_write_mask(struct exynos8895_dsim *dsim, u32 reg,
++				   u32 val, u32 mask)
++{
++	u32 v = dsim_read(dsim, reg);
++
++	v &= ~mask;
++	v |= val & mask;
++	dsim_write(dsim, reg, v);
++}
++
++static int dsim_enable_power_domain(struct exynos8895_dsim *dsim,
++				    u32 cfg_off, u32 stat_off, const char *name)
++{
++	u32 val;
++	int ret;
++
++	regmap_write(dsim->pmu, cfg_off, PMU_LOCAL_PWR_CFG);
++	ret = regmap_read_poll_timeout(dsim->pmu, stat_off, val,
++				       (val & PMU_LOCAL_PWR_CFG) == PMU_LOCAL_PWR_CFG,
++				       1000, 50000);
++	if (ret) {
++		dev_err(dsim->dev, "%s failed to power on (status 0x%x)\n",
++			name, val);
++		return ret;
++	}
++
++	dev_info(dsim->dev, "%s on\n", name);
++	return 0;
++}
++
++static int dsim_setup_clocks(struct exynos8895_dsim *dsim)
++{
++	static const struct {
++		u32 offset;
++		const char *name;
++	} gates[] = {
++		{ DPU0_CMU_DPU0_PCLK_GATE, "DPU0 CMU pclk" },
++		{ DPU0_CMU_AXI2APB_P0_GATE, "DPU0 AXI2APB P0" },
++		{ DPU0_CMU_AXI2APB_P1_GATE, "DPU0 AXI2APB P1" },
++		{ DPU0_CMU_LHM_AXI_P0_GATE, "DPU0 LHM AXI P0" },
++		{ DPU0_CMU_RSTNSYNC_BUSP_GATE, "DPU0 BUSP reset sync" },
++		{ DPU0_CMU_DPU1_BUSD_GATE, "DPU1 BUSD" },
++		{ DPU0_CMU_DPU1_BUSP_GATE, "DPU1 BUSP" },
++		{ DPU0_CMU_DSIM0_PCLK_GATE, "DSIM0 pclk" },
++	};
++	u32 val;
++	int ret;
++	int i;
++
++	dev_info(dsim->dev, "step: DPU0 user mux switch\n");
++	writel(readl(dsim->cmu + DPU0_CMU_USER_MUX) | DPU0_CMU_USER_MUX_SW_USER,
++	       dsim->cmu + DPU0_CMU_USER_MUX);
++
++	ret = readl_poll_timeout(dsim->cmu + DPU0_CMU_USER_MUX, val,
++				 !(val & DPU0_CMU_USER_MUX_BUSY), 100, 10000);
++	if (ret) {
++		dev_err(dsim->dev, "DPU0 user mux switch timed out\n");
++		return ret;
++	}
++	dev_info(dsim->dev, "step: DPU0 user mux ready (0x%x)\n", val);
++
++	val = readl(dsim->cmu + DPU0_CMU_BUSP_DIV);
++	dev_info(dsim->dev, "step: DPU0 BUSP divider old 0x%x\n", val);
++	writel(val | DPU0_CMU_BUSP_DIV_AUTOGATE,
++	       dsim->cmu + DPU0_CMU_BUSP_DIV);
++	val = readl(dsim->cmu + DPU0_CMU_BUSP_DIV);
++	dev_info(dsim->dev, "step: DPU0 BUSP divider new 0x%x\n", val);
++
++	for (i = 0; i < ARRAY_SIZE(gates); i++) {
++		val = readl(dsim->cmu + gates[i].offset);
++		dev_info(dsim->dev, "step: %s gate old 0x%x\n", gates[i].name, val);
++		writel(val | DPU0_CMU_GATE_ON, dsim->cmu + gates[i].offset);
++		val = readl(dsim->cmu + gates[i].offset);
++		dev_info(dsim->dev, "step: %s gate new 0x%x\n", gates[i].name, val);
++	}
++
++	static const struct {
++		u32 offset;
++		const char *name;
++	} dpu1_muxes[] = {
++		{ DPU1_CMU_BUSD_USER_MUX, "DPU1 BUSD user mux" },
++		{ DPU1_CMU_BUSP_USER_MUX, "DPU1 BUSP user mux" },
++	};
++
++	for (i = 0; i < ARRAY_SIZE(dpu1_muxes); i++) {
++		dev_info(dsim->dev, "step: %s switch\n", dpu1_muxes[i].name);
++		writel(readl(dsim->cmu1 + dpu1_muxes[i].offset) |
++		       DPU1_CMU_USER_MUX_SW_USER,
++		       dsim->cmu1 + dpu1_muxes[i].offset);
++		ret = readl_poll_timeout(dsim->cmu1 + dpu1_muxes[i].offset, val,
++					 !(val & DPU1_CMU_USER_MUX_BUSY),
++					 100, 10000);
++		if (ret) {
++			dev_err(dsim->dev, "%s timed out\n", dpu1_muxes[i].name);
++			return ret;
++		}
++		dev_info(dsim->dev, "step: %s ready (0x%x)\n",
++			 dpu1_muxes[i].name, val);
++	}
++
++	val = readl(dsim->cmu1 + DPU1_CMU_DPU1_PCLK_GATE);
++	dev_info(dsim->dev, "step: DPU1 CMU pclk gate old 0x%x\n", val);
++	writel(val | DPU1_CMU_GATE_ON, dsim->cmu1 + DPU1_CMU_DPU1_PCLK_GATE);
++	val = readl(dsim->cmu1 + DPU1_CMU_DPU1_PCLK_GATE);
++	dev_info(dsim->dev, "step: DPU1 CMU pclk gate new 0x%x\n", val);
++
++	return 0;
++}
++
++static int dsim_pll_enable(struct exynos8895_dsim *dsim)
++{
++	u32 pms = (DSIM_PLL_P << 13) | (DSIM_PLL_M << 3) | DSIM_PLL_S;
++	u32 val;
++	int ret;
++
++	dev_info(dsim->dev, "step: DSIM escape clock setup\n");
++	dsim_write_mask(dsim, DSIM_CLK_CTRL,
++			DSIM_CLK_CTRL_ESCCLK_EN |
++			DSIM_CLK_CTRL_ESC_PRESCALER(DSIM_ESC_PRESCALER),
++			DSIM_CLK_CTRL_ESCCLK_EN |
++			DSIM_CLK_CTRL_ESC_PRESCALER_MASK);
++
++	dev_info(dsim->dev, "step: DSIM PHY timing setup\n");
++	dsim_write(dsim, DSIM_PHY_TIMING, (6 << 8) | 5);
++	dsim_write(dsim, DSIM_PHY_TIMING1, (8 << 24) | (14 << 16) | (7 << 8) | 6);
++	dsim_write(dsim, DSIM_PHY_TIMING2, (8 << 16) | (5 << 8) | 10);
++	dsim_write(dsim, DSIM_PHYCTRL_B1, 0x1a9);
++
++	dev_info(dsim->dev, "step: DSIM PHY characteristic setup\n");
++	dsim_write(dsim, DSIM_PLL_CTRL1, 0);
++	dsim_write(dsim, DSIM_PLL_CTRL2, 0x03800000);
++	dsim_write(dsim, DSIM_PHYCTRL_B2, 0x800);
++	dsim_write(dsim, DSIM_PHYCTRL_B3, 0x10001249);
++	dsim_write(dsim, DSIM_PHYCTRL_B4, 0x500000);
++	dsim_write(dsim, DSIM_PHYCTRL_M1, 0x1980);
++	dsim_write(dsim, DSIM_PHYCTRL_M2, 0);
++	dsim_write(dsim, DSIM_PHYCTRL_M3, 0);
++	dsim_write(dsim, DSIM_PHYCTRL_M4, 0);
++
++	dev_info(dsim->dev, "step: DSIM PLL enable PMS %d/%d/%d\n",
++		 DSIM_PLL_P, DSIM_PLL_M, DSIM_PLL_S);
++	dsim_write_mask(dsim, DSIM_PLLCTRL, pms | DSIM_PLLCTRL_PLL_EN,
++			DSIM_PLLCTRL_PMS_MASK | DSIM_PLLCTRL_PLL_EN);
++	dsim_write(dsim, DSIM_PLLTMR, DSIM_PLL_STABLE_TIME);
++
++	ret = readl_poll_timeout(dsim->regs + DSIM_LINK_STATUS3, val,
++				 val & DSIM_LINK_STATUS3_PLL_STABLE, 10, 10000);
++	if (ret) {
++		dev_err(dsim->dev, "DPHY PLL failed to stabilize\n");
++		return ret;
++	}
++
++	dev_info(dsim->dev, "DPHY PLL stable (status 0x%x)\n", val);
++	return 0;
++}
++
++static void dsim_setup_lanes(struct exynos8895_dsim *dsim)
++{
++	dev_info(dsim->dev, "step: DSIM lane enable\n");
++	dsim_write_mask(dsim, DSIM_CONFIG, 0x1f, DSIM_CONFIG_LANES_EN_MASK);
++	udelay(300);
++
++	dev_info(dsim->dev, "step: DSIM lane escape clocks + word clock\n");
++	dsim_write_mask(dsim, DSIM_CLK_CTRL,
++			DSIM_CLK_CTRL_LANE_ESCCLK_EN(0x1f) |
++			DSIM_CLK_CTRL_WORDCLK_EN,
++			DSIM_CLK_CTRL_LANE_ESCCLK_EN_MASK |
++			DSIM_CLK_CTRL_WORDCLK_EN);
++
++	dev_info(dsim->dev, "step: DSIM DPHY reset release\n");
++	dsim_write_mask(dsim, DSIM_SWRST, DSIM_DPHY_RST, DSIM_DPHY_RST);
++}
++
++static void dsim_setup_config(struct exynos8895_dsim *dsim)
++{
++	dev_info(dsim->dev, "step: DSIM command-mode clock config\n");
++	dsim_write_mask(dsim, DSIM_CLK_CTRL, DSIM_CLK_CTRL_NONCONT_CLOCK_LANE,
++			DSIM_CLK_CTRL_NONCONT_CLOCK_LANE);
++
++	dev_info(dsim->dev, "step: DSIM timeout/underrun/resolution config\n");
++	dsim_write(dsim, DSIM_TIMEOUT,
++		   DSIM_TIMEOUT_BTA_TOUT(DSIM_BTA_TIMEOUT) |
++		   DSIM_TIMEOUT_LPDR_TOUT(DSIM_LP_RX_TIMEOUT));
++	dsim_write_mask(dsim, DSIM_ESCMODE,
++			DSIM_ESCMODE_STOP_STATE_CNT(DSIM_STOP_STATE_CNT),
++			DSIM_ESCMODE_STOP_STATE_CNT(0x7ff));
++	dsim_write(dsim, DSIM_UNDERRUN_CTRL, DSIM_CMD_UNDERRUN_LP_REF);
++	dsim_write(dsim, DSIM_THRESHOLD, DSIM_HRESOL);
++	dsim_write(dsim, DSIM_RESOL,
++		   DSIM_RESOL_VRESOL(DSIM_VRESOL) |
++		   DSIM_RESOL_HRESOL(DSIM_HRESOL));
++	dsim_write(dsim, DSIM_NUM_OF_TRANSFER, DSIM_NUM_OF_TRANSFER_LINE);
++
++	dev_info(dsim->dev, "step: DSIM non-DSC EOTP/data-lane config for probe\n");
++	dsim_write_mask(dsim, DSIM_CONFIG,
++			DSIM_CONFIG_NUM_OF_DATA_LANE(3) |
++			DSIM_CONFIG_EOTP_EN,
++			DSIM_CONFIG_NUM_OF_DATA_LANE_MASK |
++			DSIM_CONFIG_EOTP_EN |
++			DSIM_CONFIG_PER_FRAME_READ_EN |
++			DSIM_CONFIG_CPRS_EN |
++			DSIM_CONFIG_VIDEO_MODE |
++			DSIM_CONFIG_PIXEL_FORMAT_MASK);
++
++	dev_info(dsim->dev, "step: DSIM command-mode TE timing\n");
++	dsim_write(dsim, DSIM_CMD_TE_CTRL0, 86);
++	dsim_write(dsim, DSIM_CMD_TE_CTRL1, (8867 << 16) | 10102);
++
++	dev_info(dsim->dev, "step: DSIM SFR shadow + HS clock request\n");
++	dsim_write(dsim, DSIM_SFR_CTRL, 0x3);
++	dsim_write_mask(dsim, DSIM_CLK_CTRL, DSIM_CLK_CTRL_TX_REQUEST_HSCLK,
++			DSIM_CLK_CTRL_TX_REQUEST_HSCLK);
++}
++
++static int dsim_hw_init(struct exynos8895_dsim *dsim)
++{
++	u32 val;
++	int ret;
++
++	dev_info(dsim->dev, "step: DSIM bootloader-state check\n");
++	val = dsim_read(dsim, DSIM_LINK_STATUS3);
++	dev_info(dsim->dev, "step: DSIM LINK_STATUS3 0x%x\n", val);
++	if (val & DSIM_LINK_STATUS3_PLL_STABLE)
++		dev_info(dsim->dev, "DPHY PLL was stable; reinitializing after panel reset\n");
++
++	dev_info(dsim->dev, "step: DSIM DPHY reset assert\n");
++	dsim_write_mask(dsim, DSIM_SWRST, 0, DSIM_DPHY_RST);
++
++	dev_info(dsim->dev, "step: DSIM software reset\n");
++	dsim_write_mask(dsim, DSIM_SWRST, DSIM_SWRST_RESET, DSIM_SWRST_RESET);
++	ret = readl_poll_timeout(dsim->regs + DSIM_SWRST, val,
++				 !(val & DSIM_SWRST_RESET), 10, 10000);
++	if (ret) {
++		dev_err(dsim->dev, "software reset timed out\n");
++		return ret;
++	}
++	dev_info(dsim->dev, "step: DSIM software reset done\n");
++
++	ret = dsim_pll_enable(dsim);
++	if (ret)
++		return ret;
++
++	dsim_setup_lanes(dsim);
++	dsim_setup_config(dsim);
++
++	dev_info(dsim->dev, "dsim hw init done\n");
++	return 0;
++}
++
++static int dsim_power_on(struct exynos8895_dsim *dsim)
++{
++	int ret;
++
++	if (dsim->powered)
++		return 0;
++
++	dev_info(dsim->dev, "step: pd_dpu0 request\n");
++	ret = dsim_enable_power_domain(dsim, PMU_DPU0_CONFIGURATION,
++				       PMU_DPU0_STATUS, "pd_dpu0");
++	if (ret)
++		return ret;
++
++	dev_info(dsim->dev, "step: pd_dpu1 request\n");
++	ret = dsim_enable_power_domain(dsim, PMU_DPU1_CONFIGURATION,
++				       PMU_DPU1_STATUS, "pd_dpu1");
++	if (ret)
++		return ret;
++
++	dev_info(dsim->dev, "step: MIPI PHY M4S4 isolation release\n");
++	regmap_update_bits(dsim->pmu, PMU_MIPI_PHY_M4S4_ISOLATION, BIT(0), BIT(0));
++	dev_info(dsim->dev, "mipi phy m4s4 isolation released\n");
++
++	dev_info(dsim->dev, "step: DISP_SS sysreg setup\n");
++	regmap_write(dsim->disp_ss, DISP_SS_LPMUX, DISP_SS_LPMUX_VAL);
++	dev_info(dsim->dev, "disp-ss sysreg configured (lpmux 0x%x)\n",
++		 DISP_SS_LPMUX_VAL);
++
++	dev_info(dsim->dev, "step: CMU_TOP DPU bus clock enable\n");
++	ret = clk_prepare_enable(dsim->dpu_bus);
++	if (ret) {
++		dev_err(dsim->dev, "failed to enable dpu_bus: %d\n", ret);
++		return ret;
++	}
++
++	ret = dsim_setup_clocks(dsim);
++	if (ret)
++		return ret;
++
++	ret = dsim_hw_init(dsim);
++	if (ret)
++		return ret;
++
++	dev_info(dsim->dev, "step: DSIM interrupt unmask\n");
++	dsim_write(dsim, DSIM_INTSRC, 0xffffffff);
++	dsim_write_mask(dsim, DSIM_INTMSK, 0, DSIM_INT_UNMASK);
++	enable_irq(dsim->irq);
++
++	dsim->powered = true;
++	dev_info(dsim->dev, "dsim0 powered\n");
++	return 0;
++}
++
++static irqreturn_t dsim_irq_handler(int irq, void *dev_id)
++{
++	struct exynos8895_dsim *dsim = dev_id;
++	u32 intsrc;
++
++	spin_lock(&dsim->slock);
++	intsrc = dsim_read(dsim, DSIM_INTSRC);
++	if (!intsrc) {
++		spin_unlock(&dsim->slock);
++		return IRQ_NONE;
++	}
++
++	if (dsim->powered) {
++		if (intsrc & DSIM_INTSRC_SFR_PH_FIFO_EMPTY)
++			complete(&dsim->ph_wr_comp);
++		if (intsrc & DSIM_INTSRC_RX_DATA_DONE)
++			complete(&dsim->rd_comp);
++		if (intsrc & DSIM_INTSRC_ERR_RX_ECC)
++			dev_err_ratelimited(dsim->dev, "RX ECC multi-bit error\n");
++		if (intsrc & DSIM_INTSRC_UNDER_RUN)
++			dev_err_ratelimited(dsim->dev, "under-run detected\n");
++	}
++
++	dsim_write(dsim, DSIM_INTSRC, intsrc);
++	spin_unlock(&dsim->slock);
++
++	return IRQ_HANDLED;
++}
++
++static int dsim_wait_ph_fifo_empty(struct exynos8895_dsim *dsim)
++{
++	u32 val;
++	int ret;
++
++	ret = readl_poll_timeout(dsim->regs + DSIM_FIFOCTRL, val,
++				 val & DSIM_FIFOCTRL_EMPTY_PH_SFR,
++				 100, DSIM_WR_TIMEOUT_MS * 1000);
++	if (ret)
++		dev_err(dsim->dev, "tx header fifo timeout (FIFOCTRL 0x%x)\n",
++			dsim_read(dsim, DSIM_FIFOCTRL));
++
++	return ret;
++}
++
++static int dsim_wait_pl_fifo_empty(struct exynos8895_dsim *dsim)
++{
++	u32 val;
++	int ret;
++
++	ret = readl_poll_timeout(dsim->regs + DSIM_FIFOCTRL, val,
++				 val & DSIM_FIFOCTRL_EMPTY_PL_SFR,
++				 100, DSIM_WR_TIMEOUT_MS * 1000);
++	if (ret)
++		dev_err(dsim->dev, "tx payload fifo timeout (FIFOCTRL 0x%x)\n",
++			dsim_read(dsim, DSIM_FIFOCTRL));
++
++	return ret;
++}
++
++static int dsim_tx_short(struct exynos8895_dsim *dsim, u8 id,
++			 u8 data0, u8 data1, bool bta)
++{
++	u32 hdr;
++
++	reinit_completion(&dsim->ph_wr_comp);
++	dsim_write(dsim, DSIM_INTSRC, DSIM_INTSRC_SFR_PH_FIFO_EMPTY);
++
++	hdr = DSIM_PKTHDR_ID(id) | DSIM_PKTHDR_DATA0(data0) |
++		DSIM_PKTHDR_DATA1(data1);
++	if (bta)
++		hdr |= DSIM_PKTHDR_BTA_TYPE(1);
++	dsim_write_mask(dsim, DSIM_PKTHDR, hdr, DSIM_PKTHDR_DATA_MASK);
++
++	return dsim_wait_ph_fifo_empty(dsim);
++}
++
++static int dsim_tx_long(struct exynos8895_dsim *dsim, u8 id,
++			const u8 *data, size_t len)
++{
++	size_t i;
++	u32 payload;
++	int ret;
++
++	for (i = 0; i < len; i += 4) {
++		payload = 0;
++		memcpy(&payload, data + i, min_t(size_t, len - i, 4));
++		dsim_write(dsim, DSIM_PAYLOAD, payload);
++	}
++
++	reinit_completion(&dsim->ph_wr_comp);
++	dsim_write(dsim, DSIM_INTSRC, DSIM_INTSRC_SFR_PH_FIFO_EMPTY);
++
++	dsim_write_mask(dsim, DSIM_PKTHDR,
++			DSIM_PKTHDR_ID(id) | DSIM_PKTHDR_DATA0(len & 0xff) |
++			DSIM_PKTHDR_DATA1((len >> 8) & 0xff),
++			DSIM_PKTHDR_DATA_MASK);
++
++	ret = dsim_wait_ph_fifo_empty(dsim);
++	if (ret)
++		return ret;
++
++	return dsim_wait_pl_fifo_empty(dsim);
++}
++
++static ssize_t dsim_rx(struct exynos8895_dsim *dsim, const struct mipi_dsi_msg *msg)
++{
++	const u8 *tx = msg->tx_buf;
++	u8 size_buf[2];
++	u32 rx_fifo;
++	size_t copied = 0;
++	u32 rx_fifo_depth = DSIM_RX_FIFO_DEPTH;
++	u32 rx_drain = DSIM_RX_FIFO_DEPTH;
++	int ret;
++
++	/* Discard stale responses so the first FIFO word is this read's packet. */
++	while (!(dsim_read(dsim, DSIM_FIFOCTRL) & DSIM_FIFOCTRL_EMPTY_RX) &&
++	       rx_drain--)
++		dsim_read(dsim, DSIM_RXFIFO);
++
++	reinit_completion(&dsim->rd_comp);
++	dsim_write(dsim, DSIM_INTSRC, DSIM_INTSRC_RX_DATA_DONE);
++
++	/* set maximum return packet size */
++	size_buf[0] = msg->rx_len & 0xff;
++	size_buf[1] = (msg->rx_len >> 8) & 0xff;
++	ret = dsim_tx_short(dsim, MIPI_DSI_SET_MAXIMUM_RETURN_PACKET_SIZE,
++			    size_buf[0], size_buf[1], false);
++	if (ret) {
++		dev_err(dsim->dev, "failed to set max return size: %d\n", ret);
++		return ret;
++	}
++
++	/* read request with bus turnaround */
++	ret = dsim_tx_short(dsim, msg->type, msg->tx_len ? tx[0] : 0,
++			    msg->tx_len > 1 ? tx[1] : 0, true);
++	if (ret) {
++		dev_err(dsim->dev, "failed to send read request: %d\n", ret);
++		return ret;
++	}
++
++	if (!wait_for_completion_timeout(&dsim->rd_comp,
++					 msecs_to_jiffies(DSIM_RD_TIMEOUT_MS))) {
++		dev_err(dsim->dev, "rx timeout (cmd 0x%02x)\n", tx[0]);
++		return -ETIMEDOUT;
++	}
++
++	do {
++		rx_fifo = dsim_read(dsim, DSIM_RXFIFO);
++
++		switch (rx_fifo & 0xff) {
++		case MIPI_DSI_RX_ACKNOWLEDGE_AND_ERROR_REPORT:
++			dev_err(dsim->dev, "peripheral error report 0x%06x\n",
++				(rx_fifo >> 8) & 0xffff);
++			return -EPROTO;
++		case MIPI_DSI_RX_END_OF_TRANSMISSION:
++			break;
++		case MIPI_DSI_RX_DCS_SHORT_READ_RESPONSE_1BYTE:
++		case MIPI_DSI_RX_GENERIC_SHORT_READ_RESPONSE_1BYTE:
++			if (copied < msg->rx_len)
++				((u8 *)msg->rx_buf)[copied++] =
++					(rx_fifo >> 8) & 0xff;
++			break;
++		case MIPI_DSI_RX_DCS_SHORT_READ_RESPONSE_2BYTE:
++		case MIPI_DSI_RX_GENERIC_SHORT_READ_RESPONSE_2BYTE:
++			if (copied < msg->rx_len) {
++				size_t n = min_t(size_t, msg->rx_len - copied, 2);
++
++				memcpy((u8 *)msg->rx_buf + copied,
++				       (char *)&rx_fifo + 1, n);
++				copied += n;
++			}
++			break;
++		case MIPI_DSI_RX_DCS_LONG_READ_RESPONSE:
++		case MIPI_DSI_RX_GENERIC_LONG_READ_RESPONSE: {
++			u32 rx_size = (rx_fifo >> 8) & 0xffff;
++			u32 i, j;
++
++			for (i = 0; i < rx_size / 4; i++) {
++				rx_fifo = dsim_read(dsim, DSIM_RXFIFO);
++				for (j = 0; j < 4; j++)
++					if (copied + j < msg->rx_len)
++						((u8 *)msg->rx_buf)[copied + j] =
++							(rx_fifo >> (j * 8)) & 0xff;
++				copied += min_t(size_t, 4, msg->rx_len - copied);
++			}
++			if (rx_size % 4) {
++				rx_fifo = dsim_read(dsim, DSIM_RXFIFO);
++				for (j = 0; j < rx_size % 4; j++)
++					if (copied + j < msg->rx_len)
++						((u8 *)msg->rx_buf)[copied + j] =
++							(rx_fifo >> (j * 8)) & 0xff;
++				copied += min_t(size_t, rx_size % 4,
++						msg->rx_len - copied);
++			}
++			break;
++		}
++		default:
++			dev_err(dsim->dev, "invalid rx packet 0x%08x\n", rx_fifo);
++			return -EBADMSG;
++		}
++	} while (!(dsim_read(dsim, DSIM_FIFOCTRL) & DSIM_FIFOCTRL_EMPTY_RX) &&
++		 --rx_fifo_depth);
++
++	if (!rx_fifo_depth)
++		return -EOVERFLOW;
++
++	return copied;
++}
++
++static ssize_t exynos8895_dsim_transfer(struct mipi_dsi_host *host,
++					const struct mipi_dsi_msg *msg)
++{
++	struct exynos8895_dsim *dsim = host_to_dsim(host);
++	const u8 *tx = msg->tx_buf;
++	int ret = 0;
++
++	if (!dsim->powered)
++		return -EPERM;
++
++	if (msg->tx_len > 2) {
++		switch (msg->type) {
++		case MIPI_DSI_GENERIC_LONG_WRITE:
++		case MIPI_DSI_DCS_LONG_WRITE:
++		case MIPI_DSI_PICTURE_PARAMETER_SET:
++			break;
++		default:
++			return -EINVAL;
++		}
++	}
++
++	mutex_lock(&dsim->cmd_lock);
++
++	switch (msg->type) {
++	case MIPI_DSI_DCS_READ:
++	case MIPI_DSI_GENERIC_READ_REQUEST_0_PARAM:
++	case MIPI_DSI_GENERIC_READ_REQUEST_1_PARAM:
++	case MIPI_DSI_GENERIC_READ_REQUEST_2_PARAM:
++		if (!msg->rx_buf || !msg->rx_len || !msg->tx_buf) {
++			ret = -EINVAL;
++			break;
++		}
++		ret = dsim_rx(dsim, msg);
++		break;
++
++	case MIPI_DSI_GENERIC_SHORT_WRITE_0_PARAM:
++		ret = dsim_tx_short(dsim, msg->type, 0, 0, false);
++		break;
++	case MIPI_DSI_GENERIC_SHORT_WRITE_1_PARAM:
++	case MIPI_DSI_DCS_SHORT_WRITE:
++		if (msg->tx_len < 1) {
++			ret = -EINVAL;
++			break;
++		}
++		ret = dsim_tx_short(dsim, msg->type, tx[0], 0, false);
++		break;
++	case MIPI_DSI_GENERIC_SHORT_WRITE_2_PARAM:
++	case MIPI_DSI_DCS_SHORT_WRITE_PARAM:
++	case MIPI_DSI_COMPRESSION_MODE:
++	case MIPI_DSI_COLOR_MODE_OFF:
++	case MIPI_DSI_COLOR_MODE_ON:
++	case MIPI_DSI_SHUTDOWN_PERIPHERAL:
++	case MIPI_DSI_TURN_ON_PERIPHERAL:
++		if (msg->tx_len < 1) {
++			ret = -EINVAL;
++			break;
++		}
++		ret = dsim_tx_short(dsim, msg->type, tx[0],
++				    msg->tx_len > 1 ? tx[1] : 0, false);
++		break;
++	case MIPI_DSI_SET_MAXIMUM_RETURN_PACKET_SIZE:
++		if (msg->tx_len != 2) {
++			ret = -EINVAL;
++			break;
++		}
++		ret = dsim_tx_short(dsim, msg->type, tx[0], tx[1], false);
++		break;
++
++	case MIPI_DSI_GENERIC_LONG_WRITE:
++	case MIPI_DSI_DCS_LONG_WRITE:
++	case MIPI_DSI_PICTURE_PARAMETER_SET:
++		ret = dsim_tx_long(dsim, msg->type, tx, msg->tx_len);
++		if (!ret)
++			ret = msg->tx_len;
++		break;
++
++	default:
++		dev_err(dsim->dev, "unsupported message type 0x%02x\n",
++			msg->type);
++		ret = -EINVAL;
++		break;
++	}
++
++	mutex_unlock(&dsim->cmd_lock);
++
++	return ret;
++}
++
++static int exynos8895_dsim_attach(struct mipi_dsi_host *host,
++				  struct mipi_dsi_device *dsi)
++{
++	struct exynos8895_dsim *dsim = host_to_dsim(host);
++	int ret;
++
++	if (dsim->attached)
++		return -EBUSY;
++
++	dev_info(dsim->dev, "step: dsi attach requested (channel %u)\n", dsi->channel);
++	ret = dsim_power_on(dsim);
++	if (ret)
++		return ret;
++
++	dsim->attached = true;
++	dev_info(dsim->dev, "dsi device attached (channel %u)\n", dsi->channel);
++
++	return 0;
++}
++
++static int exynos8895_dsim_detach(struct mipi_dsi_host *host,
++				  struct mipi_dsi_device *dsi)
++{
++	struct exynos8895_dsim *dsim = host_to_dsim(host);
++
++	dsim->attached = false;
++	return 0;
++}
++
++/**
++ * exynos8895_dsim_enable_dsc - switch a powered DSIM to DSC scanout config
++ * @dev: the DSIM platform device
++ *
++ * Converts the Stage 2 non-DSC command probe configuration to the
++ * compressed-stream scanout configuration used by DECON_f: compression
++ * enable, 2 slices of 720px in multi-slice packets, and threshold /
++ * horizontal resolution set to the DSC line byte count (480).  Command
++ * mode, EOTP, PLL/lanes and interrupt setup are left untouched.
++ *
++ * Must be called after the panel has received its PPS (panel init) and
++ * before the first DECON trigger.
++ *
++ * Returns 0 on success, -ENODEV if the DSIM is not powered/attached.
++ */
++int exynos8895_dsim_enable_dsc(struct device *dev)
++{
++	struct platform_device *pdev;
++	struct exynos8895_dsim *dsim;
++
++	if (!dev)
++		return -ENODEV;
++
++	pdev = to_platform_device(dev);
++	dsim = platform_get_drvdata(pdev);
++	if (!dsim || !dsim->powered || !dsim->attached)
++		return -ENODEV;
++
++	mutex_lock(&dsim->cmd_lock);
++
++	dsim_write_mask(dsim, DSIM_CONFIG, DSIM_CONFIG_CPRS_EN,
++			DSIM_CONFIG_CPRS_EN);
++	dsim_write(dsim, DSIM_CPRS_CTRL,
++		   DSIM_CPRS_CTRL_NUM_OF_SLICE(DSIM_DSC_NUM_OF_SLICE) |
++		   DSIM_CPRS_CTRL_MULI_SLICE_PACKET);
++	dsim_write(dsim, DSIM_SLICE01,
++		   DSIM_SLICE01_SIZE_OF_SLICE1(DSIM_DSC_SIZE_OF_SLICE) |
++		   DSIM_SLICE01_SIZE_OF_SLICE0(DSIM_DSC_SIZE_OF_SLICE));
++	/* downstream programs SLICE23 with the same width for 2-slice/2-enc */
++	dsim_write(dsim, DSIM_SLICE23,
++		   DSIM_SLICE01_SIZE_OF_SLICE1(DSIM_DSC_SIZE_OF_SLICE) |
++		   DSIM_SLICE01_SIZE_OF_SLICE0(DSIM_DSC_SIZE_OF_SLICE));
++	dsim_write(dsim, DSIM_THRESHOLD, DSIM_DSC_BYTES_PER_LINE);
++	dsim_write(dsim, DSIM_RESOL,
++		   DSIM_RESOL_VRESOL(DSIM_VRESOL) |
++		   DSIM_RESOL_HRESOL(DSIM_DSC_BYTES_PER_LINE));
++
++	mutex_unlock(&dsim->cmd_lock);
++
++	dev_info(dsim->dev, "DSC scanout config: %d slices x %d px, %d bytes/line\n",
++		 DSIM_DSC_NUM_OF_SLICE, DSIM_DSC_SIZE_OF_SLICE,
++		 DSIM_DSC_BYTES_PER_LINE);
++	return 0;
++}
++EXPORT_SYMBOL_GPL(exynos8895_dsim_enable_dsc);
++
++static const struct mipi_dsi_host_ops exynos8895_dsim_host_ops = {
++	.attach = exynos8895_dsim_attach,
++	.detach = exynos8895_dsim_detach,
++	.transfer = exynos8895_dsim_transfer,
++};
++
++static int exynos8895_dsim_probe(struct platform_device *pdev)
++{
++	struct device *dev = &pdev->dev;
++	struct exynos8895_dsim *dsim;
++	int ret;
++
++	dsim = devm_kzalloc(dev, sizeof(*dsim), GFP_KERNEL);
++	if (!dsim)
++		return -ENOMEM;
++
++	dsim->dev = dev;
++
++	dsim->regs = devm_platform_ioremap_resource(pdev, 0);
++	if (IS_ERR(dsim->regs))
++		return dev_err_probe(dev, PTR_ERR(dsim->regs),
++				     "failed to map dsim registers\n");
++
++	dsim->cmu = devm_platform_ioremap_resource(pdev, 1);
++	if (IS_ERR(dsim->cmu))
++		return dev_err_probe(dev, PTR_ERR(dsim->cmu),
++				     "failed to map DPU0 CMU registers\n");
++
++	dsim->cmu1 = devm_platform_ioremap_resource(pdev, 2);
++	if (IS_ERR(dsim->cmu1))
++		return dev_err_probe(dev, PTR_ERR(dsim->cmu1),
++				     "failed to map DPU1 CMU registers\n");
++
++	dsim->pmu = syscon_regmap_lookup_by_phandle(dev->of_node,
++						    "samsung,pmu-syscon");
++	if (IS_ERR(dsim->pmu))
++		return dev_err_probe(dev, PTR_ERR(dsim->pmu),
++				     "failed to get pmu syscon\n");
++
++	dsim->disp_ss = syscon_regmap_lookup_by_phandle(dev->of_node,
++							"samsung,disp-syscon");
++	if (IS_ERR(dsim->disp_ss))
++		return dev_err_probe(dev, PTR_ERR(dsim->disp_ss),
++				     "failed to get disp-ss syscon\n");
++
++	dsim->dpu_bus = devm_clk_get(dev, "dpu_bus");
++	if (IS_ERR(dsim->dpu_bus))
++		return dev_err_probe(dev, PTR_ERR(dsim->dpu_bus),
++				     "failed to get dpu_bus clock\n");
++
++	dsim->irq = platform_get_irq(pdev, 0);
++	if (dsim->irq < 0)
++		return dsim->irq;
++
++	/*
++	 * The bootloader leaves the DSIM running; a stale pending interrupt
++	 * between request_irq() and power-on would be returned as IRQ_NONE
++	 * and storm "nobody cared", getting the line disabled and silently
++	 * breaking RX-driven panel reads.  Mask everything and clear all
++	 * pending sources up front.
++	 */
++	dsim_write(dsim, DSIM_INTMSK, 0);
++	dsim_write(dsim, DSIM_INTSRC, 0xffffffff);
++
++	ret = devm_request_irq(dev, dsim->irq, dsim_irq_handler, 0,
++			       dev_name(dev), dsim);
++	if (ret)
++		return dev_err_probe(dev, ret, "failed to request irq\n");
++	disable_irq(dsim->irq);
++
++	mutex_init(&dsim->cmd_lock);
++	spin_lock_init(&dsim->slock);
++	init_completion(&dsim->ph_wr_comp);
++	init_completion(&dsim->rd_comp);
++
++	platform_set_drvdata(pdev, dsim);
++
++	dsim->host.dev = dev;
++	dsim->host.ops = &exynos8895_dsim_host_ops;
++
++	ret = mipi_dsi_host_register(&dsim->host);
++	if (ret)
++		return dev_err_probe(dev, ret,
++				     "failed to register dsi host\n");
++
++	dev_info(dev, "exynos8895 dsim host registered\n");
++	return 0;
++}
++
++static void exynos8895_dsim_remove(struct platform_device *pdev)
++{
++	struct exynos8895_dsim *dsim = platform_get_drvdata(pdev);
++
++	mipi_dsi_host_unregister(&dsim->host);
++	clk_disable_unprepare(dsim->dpu_bus);
++}
++
++static const struct of_device_id exynos8895_dsim_of_match[] = {
++	{ .compatible = "samsung,exynos8895-dsim" },
++	{ /* sentinel */ }
++};
++MODULE_DEVICE_TABLE(of, exynos8895_dsim_of_match);
++
++static struct platform_driver exynos8895_dsim_driver = {
++	.probe = exynos8895_dsim_probe,
++	.remove = exynos8895_dsim_remove,
++	.driver = {
++		.name = "exynos8895-dsim",
++		.of_match_table = exynos8895_dsim_of_match,
++	},
++};
++module_platform_driver(exynos8895_dsim_driver);
++
++MODULE_AUTHOR("The postmarketOS project");
++MODULE_DESCRIPTION("Exynos 8895 DSIM MIPI-DSI host driver");
++MODULE_LICENSE("GPL");
+diff --git a/drivers/gpu/drm/bridge/exynos8895-dsim.h b/drivers/gpu/drm/bridge/exynos8895-dsim.h
+new file mode 100644
+index 000000000..add5ecf10
+--- /dev/null
++++ b/drivers/gpu/drm/bridge/exynos8895-dsim.h
+@@ -0,0 +1,22 @@
++/* SPDX-License-Identifier: GPL-2.0-only */
++/*
++ * Exynos 8895 DSIM host: interface for display-controller drivers
++ *
++ * Copyright (c) 2026 The postmarketOS project
++ */
++
++#ifndef _EXYNOS8895_DSIM_H
++#define _EXYNOS8895_DSIM_H
++
++struct device;
++
++#if IS_REACHABLE(CONFIG_DRM_EXYNOS8895_DSIM)
++int exynos8895_dsim_enable_dsc(struct device *dev);
++#else
++static inline int exynos8895_dsim_enable_dsc(struct device *dev)
++{
++	return -ENODEV;
++}
++#endif
++
++#endif /* _EXYNOS8895_DSIM_H */
+diff --git a/drivers/gpu/drm/bridge/regs-exynos8895-decon.h b/drivers/gpu/drm/bridge/regs-exynos8895-decon.h
+new file mode 100644
+index 000000000..e7176c2db
+--- /dev/null
++++ b/drivers/gpu/drm/bridge/regs-exynos8895-decon.h
+@@ -0,0 +1,245 @@
++/* SPDX-License-Identifier: GPL-2.0-only */
++/*
++ * Exynos 8895 DECON_f register definitions
++ *
++ * Register map follows the downstream Exynos 8895 DPU
++ * (drivers/video/fbdev/exynos/dpu/regs-decon.h, regs-dpp.h @ 3cfb914).
++ * Only the registers used by the bring-up driver are listed.
++ */
++
++#ifndef _REGS_EXYNOS8895_DECON_H
++#define _REGS_EXYNOS8895_DECON_H
++
++/*
++ * DECON_f base 0x12860000
++ *	DECON core	0x0000 - 0x0304
++ *	window 0	0x1000 - 0x101C (stride 0x30 per window)
++ *	DSC0		0x4000
++ *	DSC1		0x5000
++ */
++#define DECON_GLOBAL_CONTROL		0x0000
++#define DECON_GLOBAL_CONTROL_SRESET	BIT(28)
++#define DECON_GLOBAL_CONTROL_OP_MODE_CMD	BIT(8)
++#define DECON_GLOBAL_CONTROL_IDLE_STATUS	BIT(5)
++#define DECON_GLOBAL_CONTROL_RUN_STATUS	BIT(4)
++#define DECON_GLOBAL_CONTROL_DECON_EN	BIT(1)
++#define DECON_GLOBAL_CONTROL_DECON_EN_F	BIT(0)
++
++#define DECON_SRAM_SHARE_ENABLE		0x0030
++#define DECON_SRAM_SHARE_FLOATING_F	BIT(24)
++#define DECON_SRAM_SHARE_FF0_F		BIT(12)
++
++#define DECON_INTERRUPT_ENABLE		0x0040
++#define DECON_INT_FRAME_DONE_EN		BIT(13)
++#define DECON_INT_FRAME_START_EN	BIT(12)
++#define DECON_INT_EXTRA_EN		BIT(4)
++#define DECON_INT_EN			BIT(0)
++#define DECON_INTERRUPT_ENABLE_MASK	0x3303711
++
++#define DECON_EXTRA_INTERRUPT_ENABLE	0x0044
++#define DECON_RESOURCE_CONFLICT_INT_EN	BIT(8)
++#define DECON_TIME_OUT_INT_EN		BIT(4)
++#define DECON_ERROR_INT_EN		BIT(0)
++
++#define DECON_INTERRUPT_PENDING		0x004c
++#define DECON_INT_FRAME_DONE_PEND	BIT(13)
++#define DECON_INT_FRAME_START_PEND	BIT(12)
++#define DECON_INT_EXTRA_PEND		BIT(4)
++
++#define DECON_EXTRA_INTERRUPT_PENDING	0x0050
++
++#define DECON_SHADOW_REG_UPDATE_REQ	0x0060
++#define DECON_SHADOW_UPDATE_GLOBAL	BIT(31)
++
++#define DECON_HW_SW_TRIG_CONTROL	0x0070
++#define DECON_HW_TRIG_SEL_FROM_DDI0	(0 << 24)
++#define DECON_HW_TRIG_SEL_MASK		(0x3 << 24)
++#define DECON_TRIG_AUTO_MASK_EN		BIT(12)
++#define DECON_SW_TRIG_EN		BIT(8)
++#define DECON_HW_TRIG_MASK_DECON		BIT(4)
++#define DECON_HW_TRIG_EN		BIT(0)
++
++#define DECON_CLOCK_CONTROL_0		0x00f0
++#define DECON_CLOCK_CONTROL_0_F_MASK	0x00511101
++
++#define DECON_SPLITTER_SIZE_CONTROL_0	0x0100
++#define DECON_SPLITTER_SIZE_CONTROL_1	0x0104
++#define DECON_SPLITTER_SPLIT_IDX_CONTROL	0x0108
++#define DECON_SPLITTER_OVERLAP_CONTROL	0x010c
++#define DECON_SPLITTER_HEIGHT_F(_v)	((_v) << 16)
++#define DECON_SPLITTER_WIDTH_F(_v)	((_v) << 0)
++
++#define DECON_FRAME_FIFO_0_SIZE_0	0x0120
++#define DECON_FRAME_FIFO_0_SIZE_1	0x0124
++#define DECON_FRAME_FIFO_1_SIZE_0	0x0128
++#define DECON_FRAME_FIFO_1_SIZE_1	0x012c
++#define DECON_FRAME_FIFO_HEIGHT_F(_v)	((_v) << 16)
++#define DECON_FRAME_FIFO_WIDTH_F(_v)	((_v) << 0)
++
++#define DECON_FRAME_FIFO_TH_CONTROL_0	0x0130
++#define DECON_FRAME_FIFO_1_TH_F(_v)	((_v) << 16)
++#define DECON_FRAME_FIFO_0_TH_F(_v)	((_v) << 0)
++
++#define DECON_FORMATTER_CONTROL		0x0190
++#define DECON_FORMATTER_OUT_RGB_ORDER_F(_v)	((_v) << 4)
++#define DECON_FORMATTER_OUT_RGB_ORDER_MASK	(0x7 << 4)
++
++#define DECON_FORMATTER0_SIZE_0		0x01a0
++#define DECON_FORMATTER0_SIZE_1		0x01a4
++#define DECON_FORMATTER1_SIZE_0		0x01b0
++#define DECON_FORMATTER1_SIZE_1		0x01b4
++#define DECON_FORMATTER_HEIGHT_F(_v)	((_v) << 16)
++#define DECON_FORMATTER_WIDTH_F(_v)	((_v) << 0)
++
++#define DECON_BLENDER_BG_IMAGE_SIZE_0	0x0200
++#define DECON_BLENDER_BG_IMAGE_SIZE_1	0x0204
++#define DECON_BLENDER_BG_HEIGHT_F(_v)	((_v) << 16)
++#define DECON_BLENDER_BG_WIDTH_F(_v)	((_v) << 0)
++
++#define DECON_DATA_PATH_CONTROL_0	0x0214
++#define DECON_WIN_MAPCOLOR_EN_F(_w)	(1 << (4 * (_w) + 1))
++#define DECON_WIN_EN_F(_w)		(1 << (4 * (_w) + 0))
++
++#define DECON_DATA_PATH_CONTROL_1	0x0218
++#define DECON_WIN_CHMAP_F(_w, _c)	(((_c) & 0x7) << (4 * (_w)))
++#define DECON_WIN_CHMAP_MASK(_w)	(0x7 << (4 * (_w)))
++
++#define DECON_DATA_PATH_CONTROL_2	0x0230
++#define DECON_ENHANCE_LOGIC_PATH_F(_v)	((_v) << 12)
++#define DECON_ENHANCE_LOGIC_PATH_MASK	(0x7 << 12)
++#define DECON_COMP_LINKIF_WB_PATH_F(_v)	((_v) << 0)
++#define DECON_COMP_LINKIF_WB_PATH_MASK	(0x1ff << 0)
++
++/* data path[8:0]: DSCC_EN[7] DSC_ENC1[5] DSC_ENC0[4] DSIM_IF0[0] */
++#define DECON_DPATH_DSCC_DSCENC01_FF01_FORMATTER0_DSIMIF0	0x0b1
++
++#define DECON_WIN_CONTROL_0(_w)		(0x1000 + ((_w) * 0x30))
++#define DECON_WIN_ALPHA1_F(_v)		(((_v) & 0xff) << 24)
++#define DECON_WIN_ALPHA0_F(_v)		(((_v) & 0xff) << 16)
++#define DECON_WIN_FUNC_F(_v)		(((_v) & 0xf) << 8)
++#define DECON_WIN_FUNC_MASK		(0xf << 8)
++#define DECON_WIN_PD_FUNC_COPY		0x1
++
++#define DECON_WIN_START_POSITION(_w)	(0x1008 + ((_w) * 0x30))
++#define DECON_WIN_STRPTR_Y_F(_v)	(((_v) & 0x3fff) << 16)
++#define DECON_WIN_STRPTR_X_F(_v)	(((_v) & 0x3fff) << 0)
++
++#define DECON_WIN_END_POSITION(_w)	(0x100c + ((_w) * 0x30))
++#define DECON_WIN_ENDPTR_Y_F(_v)	(((_v) & 0x3fff) << 16)
++#define DECON_WIN_ENDPTR_X_F(_v)	(((_v) & 0x3fff) << 0)
++
++#define DECON_WIN_PIXEL_COUNT(_w)	(0x101c + ((_w) * 0x30))
++
++/* DSC encoder at DECON + 0x4000 / + 0x5000 */
++#define DECON_DSC0_OFFSET		0x4000
++#define DECON_DSC1_OFFSET		0x5000
++
++#define DSC_CONTROL0			0x0000
++#define DSC_DCG_EN_ALL_F		(0xf << 16)
++#define DSC_BYTE_SWAP_F			BIT(9)
++#define DSC_FLATNESS_DET_TH_F(_v)	((_v) << 4)
++#define DSC_CG_EN_F			BIT(1)
++#define DSC_DUAL_SLICE_EN_F		BIT(0)
++
++#define DSC_CONTROL1			0x0004
++#define DSC_V_FRONT_F(_v)		((_v) << 16)
++#define DSC_V_SYNC_F(_v)		((_v) << 8)
++#define DSC_V_BACK_F(_v)		((_v) << 0)
++
++#define DSC_CONTROL2			0x0008
++#define DSC_H_FRONT_F(_v)		((_v) << 16)
++#define DSC_H_SYNC_F(_v)		((_v) << 8)
++#define DSC_H_BACK_F(_v)		((_v) << 0)
++
++#define DSC_PPS04_07			0x0024
++#define DSC_PPS08_11			0x0028
++#define DSC_PPS12_15			0x002c
++#define DSC_PPS16_19			0x0030
++#define DSC_PPS20_23			0x0034
++#define DSC_PPS24_27			0x0038
++#define DSC_PPS28_31			0x003c
++#define DSC_PPS32_35			0x0040
++#define DSC_PPS56_59			0x0058
++#define DSC_PPS76_79			0x006c
++#define DSC_PPS80_83			0x0070
++#define DSC_PPS84_87			0x0074
++
++/*
++ * IDMA_G0 DMA bank at 0x128B1000 (the 0x12851000 range is the
++ * DPP/scaler view; all IDMA fetch SFRs live on the DMA bank).
++ */
++#define IDMA_ENABLE			0x0000
++#define IDMA_SRSET			BIT(24)
++#define IDMA_ENABLE_OP_STATUS		BIT(2)
++#define IDMA_SFR_CLOCK_GATE_EN		BIT(10)
++#define IDMA_SRAM_CLOCK_GATE_EN		BIT(9)
++#define IDMA_FRAME_START_FORCE		BIT(5)
++#define IDMA_SFR_UPDATE_FORCE		BIT(4)
++#define IDMA_OP_STATUS			BIT(2)
++
++#define IDMA_IRQ			0x0004
++#define IDMA_ALL_IRQ_CLEAR		(0xfb << 16)
++#define IDMA_ALL_IRQ_MASK		(0xfb << 1)
++#define IDMA_IRQ_ENABLE			BIT(0)
++
++#define IDMA_IN_CON			0x0008
++#define IDMA_IMG_FORMAT_F(_v)		((_v) << 11)
++#define IDMA_IMG_FORMAT_MASK		(0x1f << 11)
++#define IDMA_IMG_FORMAT_ARGB8888	0
++#define IDMA_IMG_FORMAT_ABGR8888	1
++#define IDMA_IMG_FORMAT_RGBA8888	2
++#define IDMA_IMG_FORMAT_BGRA8888	3
++#define IDMA_IMG_FORMAT_XRGB8888	4
++#define IDMA_IMG_FORMAT_RGB565		8
++
++#define IDMA_OUT_CON			0x000c
++#define IDMA_OUT_FRAME_ALPHA_F(_v)	((_v) << 24)
++#define IDMA_OUT_FRAME_ALPHA_MASK	(0xff << 24)
++
++#define IDMA_SRC_SIZE			0x0010
++#define IDMA_SRC_HEIGHT_F(_v)		((_v) << 16)
++#define IDMA_SRC_WIDTH_F(_v)		((_v) << 0)
++
++#define IDMA_SRC_OFFSET			0x0014
++#define IDMA_SRC_OFFSET_Y_F(_v)		((_v) << 16)
++#define IDMA_SRC_OFFSET_X_F(_v)		((_v) << 0)
++
++#define IDMA_IMG_SIZE			0x0018
++#define IDMA_IMG_HEIGHT_F(_v)		((_v) << 16)
++#define IDMA_IMG_WIDTH_F(_v)		((_v) << 0)
++
++#define IDMA_IN_BASE_ADDR_Y		0x0040
++
++/*
++ * DPU_DMA common registers at 0x128B0000.
++ */
++#define DPU_DMA_CH_MAP			0x0004
++#define DPU_DMA_GLB_CGEN		0x0014
++#define DPU_DMA_ALL_CGEN_MASK		0x10fff
++
++/*
++ * DPU0 CMU clock gates (raw gate pattern, same style as the DSIM driver).
++ */
++#define DPU0_CMU_AD_APB_DECON0_0_GATE	0x2014
++#define DPU0_CMU_AD_APB_DECON0_1_GATE	0x2018
++#define DPU0_CMU_AXI2APB_P0_GATE	0x2054
++#define DPU0_CMU_AXI2APB_P1_GATE	0x2058
++#define DPU0_CMU_DECON0_ACLK_GATE	0x207c
++#define DPU0_CMU_DPP_G0_ACLK_GATE	0x2080
++#define DPU0_CMU_DPU_DMA_ACLK_CH0_GATE	0x208c
++#define DPU0_CMU_DPU_DMA_CH_INTF_GATE	0x2098
++#define DPU0_CMU_DPU_DMA_ACLK_SFR_GATE	0x209c
++#define DPU0_CMU_QCH_CON_DECON0		0x3014
++#define DPU0_CMU_QCH_CON_DPP_G0		0x3018
++#define DPU0_CMU_QCH_CON_DPU_DMA	0x3028
++#define DPU0_CMU_GATE_ON		(0x3 << 20)
++
++/*
++ * DISP_SS sysreg.
++ */
++#define DISP_SS_DLMUX_CFG		0x04
++#define DISP_SS_DLMUX_DISPIF0_DSIM0	((1 << 16) | 0x40 | 0x1)
++#define DISP_SS_DPU_TE_SEL		0x0c
++#define DISP_SS_TE_FROM_GPIO		0x7
++
++#endif /* _REGS_EXYNOS8895_DECON_H */
+diff --git a/drivers/gpu/drm/panel/Kconfig b/drivers/gpu/drm/panel/Kconfig
+index 307152ad7..748854fc7 100644
+--- a/drivers/gpu/drm/panel/Kconfig
++++ b/drivers/gpu/drm/panel/Kconfig
+@@ -855,6 +855,16 @@ config DRM_PANEL_SAMSUNG_S6E3HA8
+ 	select DRM_DISPLAY_DSC_HELPER
+ 	select VIDEOMODE_HELPERS
+ 
++config DRM_PANEL_SAMSUNG_S6E3HA6
++	tristate "Samsung S6E3HA6 DSI command mode panel"
++	depends on OF
++	depends on DRM_MIPI_DSI
++	help
++	  Samsung S6E3HA6 AMOLED panel (Galaxy Note 8 / greatlte),
++	  1440x2960 command mode over 4-lane DSI with DSC.
++	  Minimal bring-up driver: power, reset, DDI ID read and a
++	  fixed init sequence.
++
+ config DRM_PANEL_SAMSUNG_S6E63J0X03
+ 	tristate "Samsung S6E63J0X03 DSI command mode panel"
+ 	depends on OF
+diff --git a/drivers/gpu/drm/panel/Makefile b/drivers/gpu/drm/panel/Makefile
+index aeffaa956..2f4a09c4e 100644
+--- a/drivers/gpu/drm/panel/Makefile
++++ b/drivers/gpu/drm/panel/Makefile
+@@ -83,6 +83,7 @@ obj-$(CONFIG_DRM_PANEL_SAMSUNG_S6D7AA0) += panel-samsung-s6d7aa0.o
+ obj-$(CONFIG_DRM_PANEL_SAMSUNG_S6E3FA7) += panel-samsung-s6e3fa7.o
+ obj-$(CONFIG_DRM_PANEL_SAMSUNG_S6E3FC2X01) += panel-samsung-s6e3fc2x01.o
+ obj-$(CONFIG_DRM_PANEL_SAMSUNG_S6E3HA2) += panel-samsung-s6e3ha2.o
++obj-$(CONFIG_DRM_PANEL_SAMSUNG_S6E3HA6) += panel-samsung-s6e3ha6.o
+ obj-$(CONFIG_DRM_PANEL_SAMSUNG_S6E3HA8) += panel-samsung-s6e3ha8.o
+ obj-$(CONFIG_DRM_PANEL_SAMSUNG_S6E63J0X03) += panel-samsung-s6e63j0x03.o
+ obj-$(CONFIG_DRM_PANEL_SAMSUNG_S6E63M0) += panel-samsung-s6e63m0.o
+diff --git a/drivers/gpu/drm/panel/panel-samsung-s6e3ha6.c b/drivers/gpu/drm/panel/panel-samsung-s6e3ha6.c
+new file mode 100644
+index 000000000..d4c96a7ab
+--- /dev/null
++++ b/drivers/gpu/drm/panel/panel-samsung-s6e3ha6.c
+@@ -0,0 +1,376 @@
++// SPDX-License-Identifier: GPL-2.0-only
++/*
++ * Samsung S6E3HA6 MIPI-DSI command mode panel (Galaxy Note 8 / greatlte)
++ *
++ * Minimal bring-up driver: power/reset, DDI ID read (DCS 0x04) and a
++ * fixed init sequence (DSC PPS, sleep out, CASET/PASET, TE, panel
++ * condition) sufficient for reliable probing and later scan-out bring-up.
++ * Sequences follow the downstream s6e3ha6 greatlte panel files.
++ *
++ * Copyright (c) 2026 The postmarketOS project
++ */
++
++#include <linux/delay.h>
++#include <linux/gpio/consumer.h>
++#include <linux/module.h>
++#include <linux/of.h>
++#include <linux/regulator/consumer.h>
++
++#include <drm/display/drm_dsc.h>
++#include <drm/drm_connector.h>
++#include <drm/drm_mipi_dsi.h>
++#include <drm/drm_modes.h>
++#include <drm/drm_panel.h>
++#include <drm/drm_probe_helper.h>
++
++struct s6e3ha6 {
++	struct drm_panel panel;
++	struct mipi_dsi_device *dsi;
++	struct gpio_desc *reset_gpio;
++	struct regulator_bulk_data *supplies;
++	bool initialized;
++};
++
++static inline struct s6e3ha6 *to_s6e3ha6(struct drm_panel *panel)
++{
++	return container_of(panel, struct s6e3ha6, panel);
++}
++
++static const struct regulator_bulk_data s6e3ha6_supplies[] = {
++	{ .supply = "vdd_ddi_3p0" },
++	{ .supply = "vdd_ddi_1p8" },
++	{ .supply = "vdd_ddi_1p6" },
++};
++
++#define s6e3ha6_key1_on(ctx) \
++	mipi_dsi_dcs_write_seq_multi(ctx, 0x9f, 0xa5, 0xa5)
++#define s6e3ha6_key1_off(ctx) \
++	mipi_dsi_dcs_write_seq_multi(ctx, 0x9f, 0x5a, 0x5a)
++#define s6e3ha6_key2_on(ctx) \
++	mipi_dsi_dcs_write_seq_multi(ctx, 0xf0, 0x5a, 0x5a)
++#define s6e3ha6_key2_off(ctx) \
++	mipi_dsi_dcs_write_seq_multi(ctx, 0xf0, 0xa5, 0xa5)
++#define s6e3ha6_key3_on(ctx) \
++	mipi_dsi_dcs_write_seq_multi(ctx, 0xfc, 0x5a, 0x5a)
++#define s6e3ha6_key3_off(ctx) \
++	mipi_dsi_dcs_write_seq_multi(ctx, 0xfc, 0xa5, 0xa5)
++
++/*
++ * DSC PPS for 1440x2960, 2 slices of 720x40, 8bpp (DSU mode 1,
++ * downstream GREAT_A2_S3 PPS).
++ */
++static const u8 s6e3ha6_pps[] = {
++	0x11, 0x00, 0x00, 0x89, 0x30, 0x80, 0x0b, 0x90,
++	0x05, 0xa0, 0x00, 0x28, 0x02, 0xd0, 0x02, 0xd0,
++	0x02, 0x00, 0x02, 0x68, 0x00, 0x20, 0x04, 0x6c,
++	0x00, 0x0a, 0x00, 0x0c, 0x02, 0x77, 0x01, 0xe9,
++	0x18, 0x00, 0x10, 0xf0, 0x03, 0x0c, 0x20, 0x00,
++	0x06, 0x0b, 0x0b, 0x33, 0x0e, 0x1c, 0x2a, 0x38,
++	0x46, 0x54, 0x62, 0x69, 0x70, 0x77, 0x79, 0x7b,
++	0x7d, 0x7e, 0x01, 0x02, 0x01, 0x00, 0x09, 0x40,
++	0x09, 0xbe, 0x19, 0xfc, 0x19, 0xfa, 0x19, 0xf8,
++	0x1a, 0x38, 0x1a, 0x78, 0x1a, 0xb6, 0x2a, 0xf6,
++	0x2b, 0x34, 0x2b, 0x74, 0x3b, 0x74, 0x6b, 0xf4,
++	/* remaining 40 bytes are zero padding (PPS total: 128 bytes) */
++};
++
++static int s6e3ha6_power_on(struct s6e3ha6 *priv)
++{
++	int ret;
++
++	ret = regulator_bulk_enable(ARRAY_SIZE(s6e3ha6_supplies),
++				    priv->supplies);
++	if (ret < 0)
++		return ret;
++
++	msleep(10);
++
++	/* release the active-low reset after the rails are stable */
++	gpiod_set_value_cansleep(priv->reset_gpio, 0);
++
++	msleep(5);
++
++	return 0;
++}
++
++static int s6e3ha6_read_id(struct s6e3ha6 *priv, u8 *id)
++{
++	struct mipi_dsi_device *dsi = priv->dsi;
++	static const u8 key3_on[] = { 0x5a, 0x5a };
++	static const u8 key3_off[] = { 0xa5, 0xa5 };
++	int ret;
++
++	mipi_dsi_dcs_write(dsi, 0xfc, key3_on, sizeof(key3_on));
++
++	ret = mipi_dsi_dcs_read(dsi, 0x04, id, 3);
++
++	mipi_dsi_dcs_write(dsi, 0xfc, key3_off, sizeof(key3_off));
++
++	return ret < 0 ? ret : 0;
++}
++
++/*
++ * Wake the DDI (sleep-out).  The rest of the downstream init sequence
++ * (DSC enable + PPS, DSU scaler, CASET/PASET, omok latches, TE) runs
++ * from prepare(): sending the long PPS write before the DDI is awake
++ * wedges the DSIM command path (-110).
++ */
++static int s6e3ha6_wake(struct s6e3ha6 *priv)
++{
++	struct mipi_dsi_device *dsi = priv->dsi;
++	int ret;
++
++	dsi->mode_flags |= MIPI_DSI_MODE_LPM;
++
++	ret = mipi_dsi_dcs_exit_sleep_mode(dsi);
++	if (ret < 0)
++		return ret;
++
++	msleep(120);
++	return 0;
++}
++
++static int s6e3ha6_init(struct s6e3ha6 *priv)
++{
++	struct mipi_dsi_device *dsi = priv->dsi;
++	struct mipi_dsi_multi_context ctx = { .dsi = dsi };
++	struct drm_dsc_picture_parameter_set pps;
++	int ret;
++
++	dsi->mode_flags |= MIPI_DSI_MODE_LPM;
++
++	/*
++	 * key1: DSC enable is a MIPI Compression Mode packet (DSI data
++	 * type 0x07, downstream DSI_PKT_TYPE_COMP / MIPI_DSI_DSC_PRA),
++	 * followed by the PPS long packet (type 0x0A).
++	 */
++	s6e3ha6_key1_on(&ctx);
++	mipi_dsi_compression_mode_multi(&ctx, true);
++	memset(&pps, 0, sizeof(pps));
++	memcpy(&pps, s6e3ha6_pps, sizeof(s6e3ha6_pps));
++	ret = mipi_dsi_picture_parameter_set(dsi, &pps);
++	s6e3ha6_key1_off(&ctx);
++	if (ret < 0)
++		return ret;
++	if (ctx.accum_err)
++		return ctx.accum_err;
++
++	/* key2: DSU scaler */
++	s6e3ha6_key2_on(&ctx);
++	mipi_dsi_dcs_write_seq_multi(&ctx, 0xba, 0x01, 0x02, 0x06, 0x08,
++				     0x08, 0x1e, 0x03);
++	s6e3ha6_key2_off(&ctx);
++	if (ctx.accum_err)
++		return ctx.accum_err;
++
++	/* GRAM window: full 1440x2960 */
++	mipi_dsi_dcs_write_seq_multi(&ctx, 0x2a, 0x00, 0x00, 0x05, 0x9f);
++	mipi_dsi_dcs_write_seq_multi(&ctx, 0x2b, 0x00, 0x00, 0x0b, 0x8f);
++	if (ctx.accum_err)
++		return ctx.accum_err;
++
++	/* key3: omok latches */
++	s6e3ha6_key3_on(&ctx);
++	mipi_dsi_dcs_write_seq_multi(&ctx, 0xb0, 0x05);
++	mipi_dsi_dcs_write_seq_multi(&ctx, 0xff, 0x01);
++	mipi_dsi_dcs_write_seq_multi(&ctx, 0xb0, 0x07);
++	mipi_dsi_dcs_write_seq_multi(&ctx, 0xf2, 0x3c, 0xd0);
++	s6e3ha6_key3_off(&ctx);
++	if (ctx.accum_err)
++		return ctx.accum_err;
++
++	/* set area + TE on */
++	s6e3ha6_key1_on(&ctx);
++	mipi_dsi_dcs_write_seq_multi(&ctx, 0x1a, 0x1f, 0x00, 0x00, 0x00, 0x00);
++	mipi_dsi_dcs_write_seq_multi(&ctx, 0x35, 0x00);
++	s6e3ha6_key1_off(&ctx);
++	if (ctx.accum_err)
++		return ctx.accum_err;
++
++	return 0;
++}
++
++static int s6e3ha6_prepare(struct drm_panel *panel)
++{
++	struct s6e3ha6 *priv = to_s6e3ha6(panel);
++	struct mipi_dsi_multi_context ctx = { .dsi = priv->dsi };
++	int ret;
++
++	/*
++	 * Rest of the downstream init, once: DSC enable + PPS, DSU scaler,
++	 * CASET/PASET, omok latches, TE.  Runs with the DDI already awake
++	 * (sleep-out from probe), before display-on and before the CRTC
++	 * starts triggering - matching the downstream "DDI ready, then
++	 * scanout" order.
++	 */
++	if (!priv->initialized) {
++		ret = s6e3ha6_init(priv);
++		if (ret < 0)
++			return ret;
++		priv->initialized = true;
++	}
++
++	priv->dsi->mode_flags |= MIPI_DSI_MODE_LPM;
++	mipi_dsi_dcs_set_display_on_multi(&ctx);
++
++	return ctx.accum_err;
++}
++
++static int s6e3ha6_enable(struct drm_panel *panel)
++{
++	struct s6e3ha6 *priv = to_s6e3ha6(panel);
++	struct mipi_dsi_multi_context ctx = { .dsi = priv->dsi };
++
++	priv->dsi->mode_flags |= MIPI_DSI_MODE_LPM;
++
++	s6e3ha6_key1_on(&ctx);
++	mipi_dsi_dcs_set_display_on_multi(&ctx);
++	s6e3ha6_key1_off(&ctx);
++
++	return ctx.accum_err;
++}
++
++static const struct drm_display_mode s6e3ha6_mode = {
++	.clock = (1440 + 116 + 44 + 120) * (2960 + 120 + 80 + 124) * 60 / 1000,
++	.hdisplay = 1440,
++	.hsync_start = 1440 + 116,
++	.hsync_end = 1440 + 116 + 44,
++	.htotal = 1440 + 116 + 44 + 120,
++	.vdisplay = 2960,
++	.vsync_start = 2960 + 120,
++	.vsync_end = 2960 + 120 + 80,
++	.vtotal = 2960 + 120 + 80 + 124,
++	.width_mm = 71,
++	.height_mm = 145,
++};
++
++static int s6e3ha6_get_modes(struct drm_panel *panel,
++			     struct drm_connector *connector)
++{
++	return drm_connector_helper_get_modes_fixed(connector, &s6e3ha6_mode);
++}
++
++static const struct drm_panel_funcs s6e3ha6_panel_funcs = {
++	.prepare = s6e3ha6_prepare,
++	.enable = s6e3ha6_enable,
++	.get_modes = s6e3ha6_get_modes,
++};
++
++static int s6e3ha6_probe(struct mipi_dsi_device *dsi)
++{
++	struct device *dev = &dsi->dev;
++	struct s6e3ha6 *priv;
++	u8 id[3] = { 0 };
++	int ret;
++	int attempt;
++
++	priv = devm_drm_panel_alloc(dev, struct s6e3ha6, panel,
++				    &s6e3ha6_panel_funcs,
++				    DRM_MODE_CONNECTOR_DSI);
++	if (IS_ERR(priv))
++		return PTR_ERR(priv);
++
++	ret = devm_regulator_bulk_get_const(dev, ARRAY_SIZE(s6e3ha6_supplies),
++					    s6e3ha6_supplies,
++					    &priv->supplies);
++	if (ret < 0)
++		return dev_err_probe(dev, ret, "failed to get regulators\n");
++
++	priv->reset_gpio = devm_gpiod_get(dev, "reset", GPIOD_OUT_HIGH);
++	if (IS_ERR(priv->reset_gpio))
++		return dev_err_probe(dev, PTR_ERR(priv->reset_gpio),
++				     "failed to get reset-gpios\n");
++
++	priv->dsi = dsi;
++	mipi_dsi_set_drvdata(dsi, priv);
++
++	dsi->lanes = 4;
++	dsi->format = MIPI_DSI_FMT_RGB888;
++	dsi->mode_flags = MIPI_DSI_MODE_LPM;
++
++	drm_panel_add(&priv->panel);
++
++	ret = s6e3ha6_power_on(priv);
++	if (ret < 0) {
++		dev_err(dev, "failed to power on panel: %d\n", ret);
++		goto err_remove;
++	}
++
++	ret = mipi_dsi_attach(dsi);
++	if (ret < 0) {
++		dev_err(dev, "failed to attach to DSI host: %d\n", ret);
++		goto err_remove;
++	}
++
++	ret = s6e3ha6_wake(priv);
++	if (ret < 0) {
++		dev_err(dev, "panel wake failed: %d\n", ret);
++		goto err_detach;
++	}
++
++	for (attempt = 0; attempt < 3; attempt++) {
++		ret = s6e3ha6_read_id(priv, id);
++		if (!ret)
++			break;
++		dev_warn(dev, "panel ID read attempt %d failed: %d\n",
++			 attempt + 1, ret);
++		msleep(100);
++	}
++	if (ret < 0) {
++		dev_err(dev, "failed to read panel ID: %d\n", ret);
++		goto err_detach;
++	}
++
++	switch (id[0] & 0xf0) {
++	case 0x80:
++		dev_info(dev, "panel ID %02x%02x%02x (a2 variant)\n",
++			 id[0], id[1], id[2]);
++		break;
++	case 0xc0:
++		dev_info(dev, "panel ID %02x%02x%02x (a3 variant)\n",
++			 id[0], id[1], id[2]);
++		break;
++	default:
++		dev_info(dev, "panel ID %02x%02x%02x (unknown variant)\n",
++			 id[0], id[1], id[2]);
++		break;
++	}
++
++	return 0;
++
++err_detach:
++	mipi_dsi_detach(dsi);
++err_remove:
++	drm_panel_remove(&priv->panel);
++	regulator_bulk_disable(ARRAY_SIZE(s6e3ha6_supplies), priv->supplies);
++	return ret;
++}
++
++static void s6e3ha6_remove(struct mipi_dsi_device *dsi)
++{
++	struct s6e3ha6 *priv = mipi_dsi_get_drvdata(dsi);
++
++	mipi_dsi_detach(dsi);
++	drm_panel_remove(&priv->panel);
++	regulator_bulk_disable(ARRAY_SIZE(s6e3ha6_supplies), priv->supplies);
++}
++
++static const struct of_device_id s6e3ha6_of_match[] = {
++	{ .compatible = "samsung,s6e3ha6" },
++	{ /* sentinel */ }
++};
++MODULE_DEVICE_TABLE(of, s6e3ha6_of_match);
++
++static struct mipi_dsi_driver s6e3ha6_driver = {
++	.probe = s6e3ha6_probe,
++	.remove = s6e3ha6_remove,
++	.driver = {
++		.name = "panel-s6e3ha6",
++		.of_match_table = s6e3ha6_of_match,
++	},
++};
++module_mipi_dsi_driver(s6e3ha6_driver);
++
++MODULE_AUTHOR("The postmarketOS project");
++MODULE_DESCRIPTION("DRM driver for Samsung S6E3HA6 panel (Galaxy Note 8)");
++MODULE_LICENSE("GPL");
+diff --git a/drivers/input/touchscreen/s6sy761.c b/drivers/input/touchscreen/s6sy761.c
+index e1518a75a..10d75562d 100644
+--- a/drivers/input/touchscreen/s6sy761.c
++++ b/drivers/input/touchscreen/s6sy761.c
+@@ -85,6 +85,7 @@
+ #define S6SY761_APP_SLEEP		0x4
+ 
+ #define S6SY761_EVENT_SIZE		8
++#define S6SY761_BOOT_RETRIES		20
+ #define S6SY761_EVENT_COUNT		32
+ #define S6SY761_DEVID_SIZE		3
+ #define S6SY761_PANEL_ID_SIZE		11
+@@ -291,6 +292,7 @@ ATTRIBUTE_GROUPS(s6sy761_sysfs);
+ static int s6sy761_power_on(struct s6sy761_data *sdata)
+ {
+ 	u8 buffer[S6SY761_EVENT_SIZE];
++	int retry;
+ 	u8 event;
+ 	int ret;
+ 
+@@ -301,29 +303,43 @@ static int s6sy761_power_on(struct s6sy761_data *sdata)
+ 
+ 	msleep(140);
+ 
+-	/* double check whether the touch is functional */
+-	ret = i2c_smbus_read_i2c_block_data(sdata->client,
+-					    S6SY761_READ_ONE_EVENT,
+-					    S6SY761_EVENT_SIZE,
+-					    buffer);
+-	if (ret < 0)
+-		return ret;
+-
+-	event = (buffer[0] >> 2) & 0xf;
++	/*
++	 * Wait for the boot complete event.  If the bootloader already
++	 * powered the controller (e.g. Galaxy Note 8 / Y661) the event has
++	 * long been consumed, so like the vendor driver only warn and rely
++	 * on the boot status check below.
++	 */
++	for (retry = 0; retry < S6SY761_BOOT_RETRIES; retry++) {
++		ret = i2c_smbus_read_i2c_block_data(sdata->client,
++						    S6SY761_READ_ONE_EVENT,
++						    S6SY761_EVENT_SIZE,
++						    buffer);
++		if (ret < 0)
++			return ret;
++
++		event = (buffer[0] >> 2) & 0xf;
++		if ((event == S6SY761_EVENT_INFO ||
++		     event == S6SY761_EVENT_VENDOR_INFO) &&
++		    buffer[1] == S6SY761_INFO_BOOT_COMPLETE)
++			break;
+ 
+-	if ((event != S6SY761_EVENT_INFO &&
+-	     event != S6SY761_EVENT_VENDOR_INFO) ||
+-	    buffer[1] != S6SY761_INFO_BOOT_COMPLETE) {
+-		return -ENODEV;
++		msleep(20);
+ 	}
++	if (retry == S6SY761_BOOT_RETRIES)
++		dev_warn(&sdata->client->dev,
++			 "no boot complete event (last %*ph)\n",
++			 S6SY761_EVENT_SIZE, buffer);
+ 
+ 	ret = i2c_smbus_read_byte_data(sdata->client, S6SY761_BOOT_STATUS);
+ 	if (ret < 0)
+ 		return ret;
+ 
+ 	/* for some reasons the device might be stuck in the bootloader */
+-	if (ret != S6SY761_BS_APPLICATION)
++	if (ret != S6SY761_BS_APPLICATION) {
++		dev_err(&sdata->client->dev,
++			"not in application mode (boot status 0x%02x)\n", ret);
+ 		return -ENODEV;
++	}
+ 
+ 	/* enable touch functionality */
+ 	ret = i2c_smbus_write_word_data(sdata->client,
+@@ -371,8 +387,11 @@ static int s6sy761_hw_init(struct s6sy761_data *sdata,
+ 				       S6SY761_FIRMWARE_INTEGRITY);
+ 	if (ret < 0)
+ 		return ret;
+-	else if (ret != S6SY761_FW_OK)
++	else if (ret != S6SY761_FW_OK) {
++		dev_err(&sdata->client->dev,
++			"firmware integrity check failed (0x%02x)\n", ret);
+ 		return -ENODEV;
++	}
+ 
+ 	return 0;
+ }
+diff --git a/drivers/mfd/sec-common.c b/drivers/mfd/sec-common.c
+index e00d42169..3964ba49f 100644
+--- a/drivers/mfd/sec-common.c
++++ b/drivers/mfd/sec-common.c
+@@ -33,6 +33,10 @@ static const struct mfd_cell s5m8767_devs[] = {
+ 	MFD_CELL_OF("s5m8767-clk", NULL, NULL, 0, 0, "samsung,s5m8767-clk"),
+ };
+ 
++static const struct mfd_cell s2dos03_devs[] = {
++	MFD_CELL_NAME("s2dos03-regulator"),
++};
++
+ static const struct mfd_cell s2dos05_devs[] = {
+ 	MFD_CELL_NAME("s2dos05-regulator"),
+ };
+@@ -223,6 +227,10 @@ int sec_pmic_probe(struct device *dev, int device_type, unsigned int irq,
+ 		sec_devs = s5m8767_devs;
+ 		num_sec_devs = ARRAY_SIZE(s5m8767_devs);
+ 		break;
++	case S2DOS03:
++		sec_devs = s2dos03_devs;
++		num_sec_devs = ARRAY_SIZE(s2dos03_devs);
++		break;
+ 	case S2DOS05:
+ 		sec_devs = s2dos05_devs;
+ 		num_sec_devs = ARRAY_SIZE(s2dos05_devs);
+@@ -319,6 +327,9 @@ static int sec_pmic_suspend(struct device *dev)
+ {
+ 	struct sec_pmic_dev *sec_pmic = dev_get_drvdata(dev);
+ 
++	if (!sec_pmic->irq)
++		return 0;
++
+ 	if (device_may_wakeup(dev))
+ 		enable_irq_wake(sec_pmic->irq);
+ 	/*
+@@ -339,6 +350,9 @@ static int sec_pmic_resume(struct device *dev)
+ {
+ 	struct sec_pmic_dev *sec_pmic = dev_get_drvdata(dev);
+ 
++	if (!sec_pmic->irq)
++		return 0;
++
+ 	if (device_may_wakeup(dev))
+ 		disable_irq_wake(sec_pmic->irq);
+ 	enable_irq(sec_pmic->irq);
+diff --git a/drivers/mfd/sec-i2c.c b/drivers/mfd/sec-i2c.c
+index 70d7e259d..0ecdd9456 100644
+--- a/drivers/mfd/sec-i2c.c
++++ b/drivers/mfd/sec-i2c.c
+@@ -191,6 +191,11 @@ static void sec_pmic_i2c_shutdown(struct i2c_client *i2c)
+ 	sec_pmic_shutdown(&i2c->dev);
+ }
+ 
++static const struct sec_pmic_i2c_platform_data s2dos03_data = {
++	.regmap_cfg = &s2dos05_regmap_config,
++	.device_type = S2DOS03,
++};
++
+ static const struct sec_pmic_i2c_platform_data s2dos05_data = {
+ 	.regmap_cfg = &s2dos05_regmap_config,
+ 	.device_type = S2DOS05
+@@ -242,6 +247,7 @@ static const struct sec_pmic_i2c_platform_data s5m8767_data = {
+ };
+ 
+ static const struct of_device_id sec_pmic_i2c_of_match[] = {
++	{ .compatible = "samsung,s2dos03", .data = &s2dos03_data, },
+ 	{ .compatible = "samsung,s2dos05", .data = &s2dos05_data, },
+ 	{ .compatible = "samsung,s2mpa01-pmic", .data = &s2mpa01_data, },
+ 	{ .compatible = "samsung,s2mps11-pmic", .data = &s2mps11_data, },
+diff --git a/drivers/mfd/sec-irq.c b/drivers/mfd/sec-irq.c
+index ca42bf60c..d32da560d 100644
+--- a/drivers/mfd/sec-irq.c
++++ b/drivers/mfd/sec-irq.c
+@@ -451,6 +451,7 @@ struct regmap_irq_chip_data *sec_irq_init(struct sec_pmic_dev *sec_pmic)
+ 	case S5M8767X:
+ 		sec_irq_chip = &s5m8767_irq_chip;
+ 		break;
++	case S2DOS03:
+ 	case S2DOS05:
+ 		return NULL;
+ 	case S2MPA01:
+diff --git a/drivers/regulator/Kconfig b/drivers/regulator/Kconfig
+index e10986bdf..304628379 100644
+--- a/drivers/regulator/Kconfig
++++ b/drivers/regulator/Kconfig
+@@ -1452,6 +1452,14 @@ config REGULATOR_RTQ2208
+ 	  and two ldos. It features wide output voltage range from 0.4V to 2.05V
+ 	  and the capability to configure the corresponding power stages.
+ 
++config REGULATOR_S2DOS03
++	tristate "Samsung S2DOS03 voltage regulator"
++	depends on MFD_SEC_CORE || COMPILE_TEST
++	help
++	  This driver provides support for the voltage regulators of the S2DOS03.
++	  The S2DOS03 is a companion power management IC for the smart phones.
++	  The S2DOS03 has 4 LDOs and 1 BUCK outputs.
++
+ config REGULATOR_S2DOS05
+ 	tristate "Samsung S2DOS05 voltage regulator"
+ 	depends on MFD_SEC_CORE || COMPILE_TEST
+diff --git a/drivers/regulator/Makefile b/drivers/regulator/Makefile
+index 35639f311..4deecee07 100644
+--- a/drivers/regulator/Makefile
++++ b/drivers/regulator/Makefile
+@@ -167,6 +167,7 @@ obj-$(CONFIG_REGULATOR_RTMV20)	+= rtmv20-regulator.o
+ obj-$(CONFIG_REGULATOR_RTQ2134) += rtq2134-regulator.o
+ obj-$(CONFIG_REGULATOR_RTQ6752)	+= rtq6752-regulator.o
+ obj-$(CONFIG_REGULATOR_RTQ2208) += rtq2208-regulator.o
++obj-$(CONFIG_REGULATOR_S2DOS03) += s2dos03-regulator.o
+ obj-$(CONFIG_REGULATOR_S2DOS05) += s2dos05-regulator.o
+ obj-$(CONFIG_REGULATOR_S2MPA01) += s2mpa01.o
+ obj-$(CONFIG_REGULATOR_S2MPS11) += s2mps11.o
+diff --git a/drivers/regulator/s2dos03-regulator.c b/drivers/regulator/s2dos03-regulator.c
+new file mode 100644
+index 000000000..14dc3d60f
+--- /dev/null
++++ b/drivers/regulator/s2dos03-regulator.c
+@@ -0,0 +1,156 @@
++// SPDX-License-Identifier: GPL-2.0+
++//
++// s2dos03.c - Regulator driver for the Samsung s2dos03
++//
++// Copyright (C) 2026 The postmarketOS project
++
++#include <linux/bug.h>
++#include <linux/delay.h>
++#include <linux/err.h>
++#include <linux/slab.h>
++#include <linux/module.h>
++#include <linux/regmap.h>
++#include <linux/interrupt.h>
++#include <linux/platform_device.h>
++#include <linux/regulator/driver.h>
++#include <linux/regulator/machine.h>
++#include <linux/regulator/of_regulator.h>
++#include <linux/mfd/samsung/core.h>
++#include <linux/regulator/s2dos03.h>
++#include <linux/i2c.h>
++
++struct s2dos03_data {
++	struct regmap *regmap;
++	struct device *dev;
++};
++
++#define _BUCK(macro)	S2DOS03_BUCK##macro
++#define _buck_ops(num)	s2dos03_ops##num
++#define _LDO(macro)	S2DOS03_LDO##macro
++#define _REG(ctrl)	S2DOS03_REG##ctrl
++#define _ldo_ops(num)	s2dos03_ops##num
++#define _MASK(macro)	S2DOS03_ENABLE_MASK##macro
++#define _TIME(macro)	S2DOS03_ENABLE_TIME##macro
++
++#define BUCK_DESC(_name, _id, _ops, m, s, v, e, em, t) {	\
++	.name		= _name,				\
++	.id		= _id,					\
++	.ops		= _ops,					\
++	.of_match = of_match_ptr(_name),			\
++	.of_match_full_name = true,				\
++	.regulators_node = of_match_ptr("regulators"),		\
++	.type		= REGULATOR_VOLTAGE,			\
++	.owner		= THIS_MODULE,				\
++	.min_uV		= m,					\
++	.uV_step	= s,					\
++	.n_voltages	= S2DOS03_BUCK_N_VOLTAGES,		\
++	.vsel_reg	= v,					\
++	.vsel_mask	= S2DOS03_BUCK_VSEL_MASK,		\
++	.enable_reg	= e,					\
++	.enable_mask	= em,					\
++	.enable_time	= t,					\
++}
++
++#define LDO_DESC(_name, _id, _ops, m, s, v, e, em, t) {	\
++	.name		= _name,				\
++	.id		= _id,					\
++	.ops		= _ops,					\
++	.of_match = of_match_ptr(_name),			\
++	.of_match_full_name = true,				\
++	.regulators_node = of_match_ptr("regulators"),		\
++	.type		= REGULATOR_VOLTAGE,			\
++	.owner		= THIS_MODULE,				\
++	.min_uV		= m,					\
++	.uV_step	= s,					\
++	.n_voltages	= S2DOS03_LDO_N_VOLTAGES,		\
++	.vsel_reg	= v,					\
++	.vsel_mask	= S2DOS03_LDO_VSEL_MASK,		\
++	.enable_reg	= e,					\
++	.enable_mask	= em,					\
++	.enable_time	= t,					\
++}
++
++static const struct regulator_ops s2dos03_ops = {
++	.list_voltage		= regulator_list_voltage_linear,
++	.map_voltage		= regulator_map_voltage_linear,
++	.is_enabled		= regulator_is_enabled_regmap,
++	.enable			= regulator_enable_regmap,
++	.disable		= regulator_disable_regmap,
++	.get_voltage_sel	= regulator_get_voltage_sel_regmap,
++	.set_voltage_sel	= regulator_set_voltage_sel_regmap,
++	.set_voltage_time_sel	= regulator_set_voltage_time_sel,
++};
++
++static const struct regulator_desc regulators[S2DOS03_REGULATOR_MAX] = {
++		// name, id, ops, min_uv, uV_step, vsel_reg, enable_reg
++		LDO_DESC("ldo1", _LDO(1), &_ldo_ops(), _LDO(_MIN1),
++			_LDO(_STEP1), _REG(_LDO1_CFG),
++			_REG(_EN), _MASK(_L1), _TIME(_LDO)),
++		LDO_DESC("ldo2", _LDO(2), &_ldo_ops(), _LDO(_MIN1),
++			_LDO(_STEP1), _REG(_LDO2_CFG),
++			_REG(_EN), _MASK(_L2), _TIME(_LDO)),
++		LDO_DESC("ldo3", _LDO(3), &_ldo_ops(), _LDO(_MIN1),
++			_LDO(_STEP1), _REG(_LDO3_CFG),
++			_REG(_EN), _MASK(_L3), _TIME(_LDO)),
++		LDO_DESC("ldo4", _LDO(4), &_ldo_ops(), _LDO(_MIN1),
++			_LDO(_STEP1), _REG(_LDO4_CFG),
++			_REG(_EN), _MASK(_L4), _TIME(_LDO)),
++		BUCK_DESC("buck", _BUCK(1), &_buck_ops(), _BUCK(_MIN1),
++			_BUCK(_STEP1), _REG(_BUCK_VOUT),
++			_REG(_EN), _MASK(_B1), _TIME(_BUCK)),
++};
++
++static int s2dos03_pmic_probe(struct platform_device *pdev)
++{
++	struct device *dev = &pdev->dev;
++	struct sec_pmic_dev *iodev = dev_get_drvdata(pdev->dev.parent);
++	struct s2dos03_data *s2dos03;
++	struct regulator_config config = { };
++	unsigned int rdev_num = ARRAY_SIZE(regulators);
++
++	s2dos03 = devm_kzalloc(dev, sizeof(*s2dos03), GFP_KERNEL);
++	if (!s2dos03)
++		return -ENOMEM;
++
++	platform_set_drvdata(pdev, s2dos03);
++
++	s2dos03->regmap = iodev->regmap_pmic;
++	s2dos03->dev = dev;
++	if (!dev->of_node)
++		dev->of_node = dev->parent->of_node;
++
++	config.dev = dev;
++	config.driver_data = s2dos03;
++
++	for (int i = 0; i < rdev_num; i++) {
++		struct regulator_dev *regulator;
++
++		regulator = devm_regulator_register(&pdev->dev,
++						&regulators[i], &config);
++		if (IS_ERR(regulator)) {
++			return dev_err_probe(&pdev->dev, PTR_ERR(regulator),
++					"regulator init failed for %d\n", i);
++		}
++	}
++
++	return 0;
++}
++
++static const struct platform_device_id s2dos03_pmic_id[] = {
++	{ "s2dos03-regulator" },
++	{ },
++};
++MODULE_DEVICE_TABLE(platform, s2dos03_pmic_id);
++
++static struct platform_driver s2dos03_platform_driver = {
++	.driver = {
++		.name = "s2dos03",
++	},
++	.probe = s2dos03_pmic_probe,
++	.id_table = s2dos03_pmic_id,
++};
++module_platform_driver(s2dos03_platform_driver);
++
++MODULE_AUTHOR("The postmarketOS project");
++MODULE_DESCRIPTION("Samsung S2DOS03 Regulator Driver");
++MODULE_LICENSE("GPL");
+diff --git a/include/linux/mfd/samsung/core.h b/include/linux/mfd/samsung/core.h
+index 2dfd4214c..cfdfb2535 100644
+--- a/include/linux/mfd/samsung/core.h
++++ b/include/linux/mfd/samsung/core.h
+@@ -48,6 +48,7 @@ enum sec_device_type {
+ 	S2MPS17X,
+ 	S2MPU02,
+ 	S2MPU05,
++	S2DOS03,
+ };
+ 
+ /**
+diff --git a/include/linux/regulator/s2dos03.h b/include/linux/regulator/s2dos03.h
+new file mode 100644
+index 000000000..2f490a4ad
+--- /dev/null
++++ b/include/linux/regulator/s2dos03.h
+@@ -0,0 +1,60 @@
++/* SPDX-License-Identifier: GPL-2.0+ */
++// s2dos03.h
++//
++// Copyright (c) 2016 Samsung Electronics Co., Ltd
++//              http://www.samsung.com
++
++#ifndef __LINUX_S2DOS03_H
++#define __LINUX_S2DOS03_H
++
++// S2DOS03 registers
++// Slave Addr : 0xC0
++enum S2DOS03_reg {
++	S2DOS03_REG_DEV_ID,
++	S2DOS03_REG_TOPSYS_STAT,
++	S2DOS03_REG_STAT,
++	S2DOS03_REG_EN,
++	S2DOS03_REG_GPIO_PD_CTRL,
++	S2DOS03_REG_UVLO_CFG,
++	S2DOS03_REG_LDO1_CFG = 0x10,
++	S2DOS03_REG_LDO2_CFG,
++	S2DOS03_REG_LDO3_CFG,
++	S2DOS03_REG_LDO4_CFG,
++	S2DOS03_REG_BUCK_CFG = 0x20,
++	S2DOS03_REG_BUCK_VOUT,
++};
++
++// S2DOS03 regulator ids
++enum S2DOS03_regulators {
++	S2DOS03_LDO1,
++	S2DOS03_LDO2,
++	S2DOS03_LDO3,
++	S2DOS03_LDO4,
++	S2DOS03_BUCK1,
++	S2DOS03_REG_MAX,
++};
++
++#define S2DOS03_BUCK_MIN1	500000
++#define S2DOS03_LDO_MIN1	600000
++#define S2DOS03_BUCK_STEP1	6250
++#define S2DOS03_LDO_STEP1	25000
++#define S2DOS03_LDO_VSEL_MASK	0x7F
++#define S2DOS03_BUCK_VSEL_MASK	0xFF
++
++#define S2DOS03_ENABLE_MASK_L1	BIT(0)
++#define S2DOS03_ENABLE_MASK_L2	BIT(1)
++#define S2DOS03_ENABLE_MASK_L3	BIT(2)
++#define S2DOS03_ENABLE_MASK_L4	BIT(3)
++#define S2DOS03_ENABLE_MASK_B1	BIT(4)
++
++#define S2DOS03_RAMP_DELAY	12000
++
++#define S2DOS03_ENABLE_TIME_LDO		50
++#define S2DOS03_ENABLE_TIME_BUCK	350
++
++#define S2DOS03_LDO_N_VOLTAGES	(S2DOS03_LDO_VSEL_MASK + 1)
++#define S2DOS03_BUCK_N_VOLTAGES (S2DOS03_BUCK_VSEL_MASK + 1)
++
++#define S2DOS03_REGULATOR_MAX	(S2DOS03_REG_MAX)
++
++#endif // __LINUX_S2DOS03_H

@@ -4,7 +4,7 @@ maintainer="Jonas Heinrich <onny@project-insanity.org>"
 _flavor="postmarketos-exynos8895"
 pkgname=linux-$_flavor
 pkgver=7.0_rc1
-pkgrel=28
+pkgrel=29
 pkgdesc="Close-to-mainline kernel for Samsung Exynos 8895 devices"
 arch="aarch64"
 _carch="arm64"
@@ -50,6 +50,7 @@ source="
 	$_config
 	greatlte-dts.patch
 	exynos8895-pcie-wifi.patch
+	exynos8895-display.patch
 "
 
 
@@ -88,7 +89,8 @@ package() {
 
 sha512sums="
 64b2672445e8cf8bdc927b236eac7ef34f6f11a8615a35636205f3026c64540ffe85afa2b74c4368b83518b56c42f5776fe4f0d57cfdb4df600fd856099c873e  linux-postmarketos-exynos8895-6de23f81a5e08be8fbf5e8d7e9febc72a5b5f27f.tar.gz
-244db1ae89db1e054cdbbea7eb44fe2b33bd52c434c0ba8efab1914d09655743120a2aa2bbf8c98cd7632f95ce6b34097b4a474c18d033767520422138ac1a1f  config-postmarketos-exynos8895.aarch64
+3d7e7bfaf4ac5a3da70baf0e0f8cbe5aaab6a777476a13da884e4d9d0ef8d7cd04a4b6c037538c902b236d06c7f2d9a37dd6c72b953abc944ac49de7246c7480  config-postmarketos-exynos8895.aarch64
 1d16783b778876f8b62240985d462098ed4b6dbe8d5ebe913ee5863dc683a7350a95d643ebaeeb774f5db1a0527bb65d21200e8ac8502b120dfabd9ac69f13f7  greatlte-dts.patch
 3007a75f9fc0652de4d0947efa124bb1871ce94da509734051050d8c42ae6e485aefa8166f6cf988d805797c93fffc2fe2e3c7b3a4ff0cddcb97792cc1603ea6  exynos8895-pcie-wifi.patch
+728e410c1607f41e0bc95744ae3172fc3fa8836e8fb2a667ac04056ec8822b5cb055b9798636e143ff703eeb7922ede5d70d0e609b058dc807c940a48af758b0  exynos8895-display.patch
 "

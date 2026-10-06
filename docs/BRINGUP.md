@@ -528,6 +528,77 @@ power_save off` on the laptop. Laptop->phone direction was always fine.
   USB networking like I did.
 
 --------------------------------------------------------------------------------
+15. NATIVE DISPLAY (DECON + DSI + S6E3HA6), GPU CLOCK, CPU CLUSTERS (2026-10-05/06)
+--------------------------------------------------------------------------------
+Pipeline: DECON_f -> dual DSC encoders (2 slices of 720x40, 8 bpp) -> DSIM0
+(4 lanes, 898 Mbps, command mode, TE-triggered) -> S6E3HA6 AMOLED (a2 panel,
+ID 817143). Drivers: drivers/gpu/drm/bridge/exynos8895-{decon,dsim}.c,
+drivers/gpu/drm/panel/panel-samsung-s6e3ha6.c, S2DOS03 panel PMIC regulator.
+All in aports/linux-postmarketos-exynos8895/exynos8895-display.patch.
+
+15.1 Root causes, in the order they were found
+  - fbdev oops (missing drm_mode_config_reset) and fbcon freezing the first
+    commit under console_lock -> DRM_FBDEV_EMULATION is OFF (see 15.3).
+  - Stale bootloader DSIM/DECON interrupts -> "nobody cared" IRQ storms and
+    flaky panel ID reads: mask+clear everything before request_irq.
+  - IDMA fetch registers live in the DMA bank 0x128B1000, not the DPP bank
+    0x12851000; the scan-out kept fetching the bootloader framebuffer.
+  - THE NOISE BUG: DSC encoder SFR +0x58 holds PPS bytes 56..59; writing only
+    58/59 zeroed rc_buf_thresh[12..13] (0x7d,0x7e) so the encoder rate
+    control did not match the panel decoder -> structured noise. Found by
+    booting with decon/dsim disabled (clk_ignore_unused) and diffing against
+    the bootloader-programmed registers (tools/regdump.c).
+  - DSIM: support MIPI compression-mode packets (type 0x07, downstream
+    DSI_PKT_TYPE_COMP; the panel does NOT use DCS 0x9D), clear the
+    PER_FRAME_READ_EN reset default, program SLICE23.
+  - PRIME export used virt_to_page() on a write-combine remap -> bogus phys
+    address -> every panfrost import bounced via swiotlb. Now dma_get_sgtable().
+  - The DRM driver is named "exynos" so Mesa's kmsro pairs it with panfrost
+    (GPU-composited Plasma, kmscube 60 fps).
+  - Real vblank: the HW trigger stays armed (panel refresh 59 fps measured via
+    DECON FRAME_ID @0x128602a0), flip events complete at frame start.
+  - CMA 384M@0x80000000-0xbc000000 (KWin swapchain exhausted 128M; must stay
+    below 4G for the 32-bit panfrost mask).
+
+15.2 GPU clock (it ran at 26 MHz the whole time)
+  panfrost fdinfo drm-cycles / drm-engine ns gave exactly 26.0 MHz: the GPU
+  was on the oscillator. The real G3D PLL is CMU_G3D+0x140 (pmucal map), not
+  0x120 (cmucal map, reads 0). The g3d bring-up (rootfs-addons/etc-init.d/g3d)
+  runs debugfs steps 1 2 3 6 7 5: pmucal g3d_on (locks the PLL at 260 MHz),
+  TOP switch as bridge clock, gates, relock to 546 MHz (stock gpu_max_clock),
+  busd mux -> PLL. 546 MHz at 800 mV gave DATA_INVALID_FAULT GPU job faults;
+  the phone's ECT (dumped from RAM at 0xA0000000, parsed with
+  tools/ect_parse.py) asks for up to 768 mV + stock's 37.5 mV margin, so the
+  OPP is now 812.5 mV. NEVER let CCF reprogram this PLL at runtime: a
+  set_rate-capable PLL + a 546 MHz OPP froze the phone at boot.
+
+15.3 CPU clusters were swapped (cause of the "freezes under load")
+  CMU_CPUCL0 (0x16800000) + vdd_cpucl0/BUCK2 = Mongoose big cluster,
+  CMU_CPUCL1 (0x16900000) + vdd_cpucl1/BUCK3 = A53 little cluster (downstream
+  cmucal vdd_mngs -> PLL_CPUCL0; ECT PLL_CPUCL0 = 741..2808 MHz). The DT and
+  PLL tables had them swapped, so the A53s ran the big table: 1703 MHz at
+  1025 mV where the ECT asks for up to 1200 mV. Proven by lowering each
+  cpufreq policy and timing a busy loop on each core type. Fixed DT, PLL
+  tables now verbatim from the ECT, A53 top OPPs at the ECT worst case.
+  (The old "big CPU above 1.7 GHz hangs" note was most likely this.)
+
+15.4 Other findings
+  - Touch (Samsung Y661, s6sy761 protocol): the first queued event is not
+    always boot-complete; the driver now polls like the vendor driver.
+  - work/reboot-download had no sync(): every reboot-to-download lost
+    unflushed writes (0-byte /etc/xdg autostart files -> plasmashell never
+    started, truncated busybox). tools/reboot-download.c has the fix.
+  - microSD UHS: no vqmmc (S2MPS17 LDO2) is described, so UHS SDR104/SDR50
+    signalling is not switched to 1.8 V -> command timeouts + I/O errors under
+    sustained reads (e.g. loading QtWebEngine) hang the system. SDR50 is the
+    current setting; dropping UHS entirely broke boot (fixed sampling timing).
+    Proper fix: add LDO2 + per-mode timings. The card itself reads clean.
+  - Known limits: fbdev/fbcon still crashes early boot when enabled; no
+    brightness control yet (no DCS 0x51 on this panel; AOR 0xB1 + 0xF7 latch
+    dims but must be sent between frames); Plasma ~24-30 fps.
+  - UFS (internal storage) port in progress, not in this package.
+
+--------------------------------------------------------------------------------
 11. TODO / KNOWN REMAINING WORK
 --------------------------------------------------------------------------------
 [x] WiFi (done 2026-10-03, see section 10)
