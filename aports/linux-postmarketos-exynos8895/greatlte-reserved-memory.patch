@@ -1,0 +1,71 @@
+From 0ad6ef14165913398d4d028d5b75faa124ea81d0 Mon Sep 17 00:00:00 2001
+From: Athul <athulkrishnan97@users.noreply.github.com>
+Date: Wed, 7 Oct 2026 18:42:31 +0100
+Subject: [PATCH] greatlte: reserve the firmware-owned RAM carveouts
+
+---
+ .../boot/dts/exynos/exynos8895-greatlte.dts   | 51 +++++++++++++++++++
+ 1 file changed, 51 insertions(+)
+
+diff --git a/arch/arm64/boot/dts/exynos/exynos8895-greatlte.dts b/arch/arm64/boot/dts/exynos/exynos8895-greatlte.dts
+index 5e84e6fbd..9f91c8f03 100644
+--- a/arch/arm64/boot/dts/exynos/exynos8895-greatlte.dts
++++ b/arch/arm64/boot/dts/exynos/exynos8895-greatlte.dts
+@@ -58,6 +58,57 @@ ect@a0000000 {
+ 			no-map;
+ 		};
+ 
++		/*
++		 * Firmware-owned carveouts from the stock greatlte DT
++		 * (exynos8895-greatlte-rmem.dtsi). Some are protected by the
++		 * secure world; a non-secure access to them locks up the bus.
++		 */
++		dram-test@80002000 {
++			reg = <0 0x80002000 0x2000>;
++			no-map;
++		};
++
++		/*
++		 * Stock also carves out TIMA (RKP) at 0xb1000000; left as RAM:
++		 * RKP is only armed by the Samsung kernel, and reserving it
++		 * splits the 384M below-4G CMA window the display needs.
++		 */
++		seclog@c0000000 {
++			reg = <0 0xc0000000 0x10000>;
++			no-map;
++		};
++
++		secure-camera@d0000000 {
++			reg = <0 0xd0000000 0x1400000>;
++			no-map;
++		};
++
++		/* stock "/memreserve/ 0xE0000000 0x1900000" */
++		secure@e0000000 {
++			reg = <0 0xe0000000 0x1900000>;
++			no-map;
++		};
++
++		abox@ea800000 {
++			reg = <0 0xea800000 0x400000>;
++			no-map;
++		};
++
++		modem-if@f4c00000 {
++			reg = <0 0xf4c00000 0x9000000>;
++			no-map;
++		};
++
++		cp-ram-logging@fdc00000 {
++			reg = <0 0xfdc00000 0x2000000>;
++			no-map;
++		};
++
++		gnss-if@ffc00000 {
++			reg = <0 0xffc00000 0x400000>;
++			no-map;
++		};
++
+ 		ramoops@92000000 {
+ 			compatible = "ramoops";
+ 			reg = <0 0x92000000 0x8000>;

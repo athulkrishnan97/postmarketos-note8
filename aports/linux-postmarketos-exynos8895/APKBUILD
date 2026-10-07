@@ -3,8 +3,8 @@
 maintainer="Jonas Heinrich <onny@project-insanity.org>"
 _flavor="postmarketos-exynos8895"
 pkgname=linux-$_flavor
-pkgver=7.0_rc1
-pkgrel=30
+pkgver=7.0
+pkgrel=1
 pkgdesc="Close-to-mainline kernel for Samsung Exynos 8895 devices"
 arch="aarch64"
 _carch="arm64"
@@ -41,7 +41,7 @@ makedepends="
 	zstd
 "
 
-_commit="6de23f81a5e08be8fbf5e8d7e9febc72a5b5f27f"
+_commit="028ef9c96e96197026887c0f092424679298aae8"
 _config="config-$_flavor.$arch"
 
 # Source
@@ -52,6 +52,8 @@ source="
 	exynos8895-pcie-wifi.patch
 	exynos8895-display.patch
 	exynos8895-ufs.patch
+	greatlte-reserved-memory.patch
+	greatlte-grow-rootfs.patch
 "
 
 
@@ -89,10 +91,12 @@ package() {
 }
 
 sha512sums="
-64b2672445e8cf8bdc927b236eac7ef34f6f11a8615a35636205f3026c64540ffe85afa2b74c4368b83518b56c42f5776fe4f0d57cfdb4df600fd856099c873e  linux-postmarketos-exynos8895-6de23f81a5e08be8fbf5e8d7e9febc72a5b5f27f.tar.gz
+f4fa939671330d0da614aa5dd1e3c1dafabaec0a3a0e46c3ea56cf29a37f6c7f86f2ad9c85c351d2d30188ae731e7bb93820c3a4e8a168e89956e0c9a3ae98f5  linux-postmarketos-exynos8895-028ef9c96e96197026887c0f092424679298aae8.tar.gz
 e07d2a02f3ba819309a11fb9ff6e98a1c6b6333a49e75bac056a0c1b06b9a1867762c2a6d7daf861cbda437a1294b675a089507c06659d2f65fbf91c11f03ac4  config-postmarketos-exynos8895.aarch64
 1d16783b778876f8b62240985d462098ed4b6dbe8d5ebe913ee5863dc683a7350a95d643ebaeeb774f5db1a0527bb65d21200e8ac8502b120dfabd9ac69f13f7  greatlte-dts.patch
 3007a75f9fc0652de4d0947efa124bb1871ce94da509734051050d8c42ae6e485aefa8166f6cf988d805797c93fffc2fe2e3c7b3a4ff0cddcb97792cc1603ea6  exynos8895-pcie-wifi.patch
 728e410c1607f41e0bc95744ae3172fc3fa8836e8fb2a667ac04056ec8822b5cb055b9798636e143ff703eeb7922ede5d70d0e609b058dc807c940a48af758b0  exynos8895-display.patch
 d265afdd4b39131de392b79b2b91dd53d1fe615e809ff70486782e0e2d980f1f0736717658f535fe42c2e78e86125c9a2c81a4b0bb00c94b7a890324a49afc97  exynos8895-ufs.patch
+d8d04aef3f733941ddb21dd94185f19fe5ba17f847542bb594b949a52fb49953af93737691bd75c6b687c46cc948714faca80fbeb7d3286cb0d7fb017dec2406  greatlte-reserved-memory.patch
+ed9f25a252dd7087768903a6f60b935675d979f786685ba4615cfde129a74afc433607668a9dd9f7bebaac310c3511b5e87ec71f08ef20d4ac9fa89c514e26ef  greatlte-grow-rootfs.patch
 "

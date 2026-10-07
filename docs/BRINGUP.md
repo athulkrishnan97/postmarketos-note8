@@ -31,7 +31,7 @@ PC (laptop "athul-g15", Ubuntu, systemd-networkd, NO NetworkManager):
   PC bluetooth: bluez 5.85, controller hci0 90:E8:68:42:1D:2A, name athul-g15
   PC bridge br0 = 192.168.99.1/24. PC runs a NAP server: bt-network -s nap br0
 
-Phone ("greatlte", postmarketOS/Alpine, OpenRC, kernel 7.0.0-rc1
+Phone ("greatlte", postmarketOS/Alpine, OpenRC, kernel 7.0.0 (7.0.0-rc1 until 2026-10-07)
        #4-postmarketos-exynos8895, musl, user athul password 147147):
   /home/athul/bt-pan-up.sh         bring-up script (idempotent, logs to
                                    /home/athul/bt-pan-up.log)
@@ -262,7 +262,7 @@ Root cause chain (all verified):
 - Internal UFS invisible to mainline (parked; needs UFS driver work).
   [Done 2026-10-06, see section 16.]
 - Kernel source: pmaports linux-postmarketos-exynos8895 (branch greatlte-v2),
-  mainline 7.0-rc1 base. DTS patch for greatlte in the same branch.
+  mainline 7.0 base (7.0-rc1 until 2026-10-07). DTS patch for greatlte in the same branch.
   Local linux-mainline/ is a sparse clone for header reference; to compile
   the greatlte DTB from it:
     cpp -nostdinc -I arch/arm64/boot/dts/exynos -I include \
@@ -382,10 +382,10 @@ Firmware on phone (/lib/firmware/brcm/, persists on SD rootfs):
   fallback timeout (~60s each for board+base name at first boot).
 
 Rootfs module install (no pmbootstrap rebuild needed):
-- Modules are .ko.zst under /lib/modules/7.0.0-rc1/kernel/... Build with
+- Modules are .ko.zst under /lib/modules/7.0.0/kernel/... Build with
   make LLVM=1 CROSS_COMPILE=aarch64-linux-gnu- LOCALVERSION= in the scratch
   tree, zstd -f on the laptop, scp, sudo cp over the old .zst,
-  depmod -a 7.0.0-rc1. modules.alias must contain
+  depmod -a 7.0.0. modules.alias must contain
   "of:N*T*Csamsung,exynos8895-pcie pci_exynos" and
   "pci:v000014E4d0000441Fsv*sd*bc02sc80i* brcmfmac" (depmod does this).
 
@@ -654,37 +654,85 @@ sdb-sde boot/RPMB LUNs.
   No RTC driver: the clock starts at 1970 and chronyd (started before WiFi)
   never syncs -> NetworkManager dispatcher hook restarts chronyd on connect.
 
+17. BROWSER START-UP FREEZE (2026-10-07, SOLVED: firmware-owned RAM)
 --------------------------------------------------------------------------------
-17. BROWSER START-UP FREEZE (2026-10-07, unsolved)
+Symptom: opening Firefox or Angelfish hard-froze the phone 5-15 s after the
+window appeared, before any page loaded. No panic, no soft/hard-lockup
+report (despite softlockup_panic=1 hung_task_panic=1 panic=5), WiFi drops,
+the kernel log just stops. ramoops is empty after the forced reboot.
+
+Root cause: the greatlte DT handed firmware-owned DRAM to Linux as ordinary
+RAM. The stock DT (exynos8895-greatlte-rmem.dtsi) carves out several regions
+- most importantly `/memreserve/ 0xE0000000 0x1900000` (25 MB, the secure
+world's memory) - and our memory nodes covered all of 0xC0000000-0xFFFFFFFF
+with nothing reserved. Once the page allocator hands out one of those pages
+and the CPU touches it, the interconnect locks up: every core stops at once,
+so not even the oops/lockup machinery gets to print. Browsers trigger it
+because they allocate and fill hundreds of MB within seconds of starting
+(other apps and stress tests never pulled pages from that range).
+Fix (greatlte-reserved-memory.patch): no-map reservations for dram_test
+(0x80002000), seclog (0xC0000000), secure_camera (0xD0000000), the secure
+/memreserve/ (0xE0000000), abox (0xEA800000), modem_if (0xF4C00000),
+cp_ram_logging (0xFDC00000) and gnss_if (0xFFC00000). TIMA/RKP at
+0xB1000000 is deliberately NOT reserved: RKP is only armed by the Samsung
+kernel, and reserving it splits the 384M below-4G CMA window the display
+needs (cma: "Failed to reserve 384 MiB" -> KWin cannot allocate scan-out
+buffers -> black screen). Cost: ~230 MB of RAM (MemTotal 3.71 GB).
+
+How it was found (the dead ends are worth keeping):
+  1. Ruled out, one test each: microSD (froze from UFS too), GPU clock (260
+     vs 546 MHz), the GPU entirely (llvmpipe, X11), CPU/SIMD/memory stress,
+     OOM (1.2 GB free at the freeze), user+net namespace churn, reading all
+     of /sys, DRM probing, headless Firefox, the OSK, the network.
+  2. Kernel 7.0-rc1 -> 7.0 final (all patches apply unchanged): still froze.
+  3. 7.0's new panfrost Transparent Hugepage GEM mount (on by default;
+     645 MB ShmemHugePages at idle): panfrost.transparent_hugepage=0 still
+     froze.
+  4. strace streamed over ssh to the laptop (a log on the phone's own disk
+     never survives): the last event was Firefox's "URL Classifier" thread
+     `+++ killed by SIGSEGV +++` *inside* a read() into a freshly mmap'ed
+     2 MB buffer, with no SIGSEGV delivered from user space - i.e. the
+     kernel died while touching the destination page. Re-reading the same
+     file with caches dropped was fine, so it was the page, not the file.
+  5. dmesg -w streamed over ssh: nothing at all before the stop - consistent
+     with a bus lock-up rather than a software crash.
+  6. /proc/iomem vs the stock rmem dtsi -> the unreserved carveouts.
+The earlier "microSD read freezes" were very likely the same thing.
+
+Debug technique worth reusing: for hard freezes, stream the evidence off the
+phone while it happens (`ssh phone 'strace -f -tt ... firefox' > laptop.log`,
+`ssh phone 'sudo dmesg -w' > laptop.log`) - anything written locally is lost
+with the unsynced page cache.
+
 --------------------------------------------------------------------------------
-Opening Firefox or Angelfish hard-freezes the phone within seconds of the
-window appearing, before any page loads. No panic, no soft/hard-lockup
-report; WiFi drops and the kernel log simply stops. ramoops comes back empty
-after the forced reboot (RAM is not retained).
-Ruled out (each test ran without a freeze unless noted):
-  - microSD: froze identically with the rootfs on UFS.
-  - GPU clock: froze at 260 MHz as at 546 MHz.
-  - GPU at all: froze with Firefox on llvmpipe (LIBGL_ALWAYS_SOFTWARE=1,
-    MOZ_WEBRENDER_SOFTWARE=1) and with Firefox on X11/Xwayland.
-  - CPU load: 8 busy loops 90 s; openssl speed -multi 8 (AES-GCM + SHA-256,
-    SIMD/crypto ext) on all cores, load ~10.
-  - Memory: 8x dd 32M blocks for 90 s. A once-a-second synced logger showed
-    1.2 GB free at the freeze - not OOM.
-  - Sandboxing: 300 x unshare -Urn (the browsers' per-process user+net
-    namespaces; the last kernel lines before each freeze were `lo` adds).
-  - Hardware info reads: all 9482 files under /sys/devices, /sys/firmware,
-    /sys/kernel read one by one as the user.
-  - DRM probing: drm_info over card0/card1/renderD128.
-  - GPU rendering: glmark2-es2-wayland off-screen and fullscreen (one
-    harmless job page fault).
-  - Firefox's own start-up: `firefox --headless --screenshot` exits fine.
-  - On-screen keyboard popping up: fine in other apps.
-  - Network: the freeze happens before any page loads.
-So it follows the browser *window* on the desktop. Next ideas: test another
-heavy non-browser app (Konsole, Discover); trace the browser start-up
-(strace) with a log that survives the freeze; look for a register access
-with the clocks off on the display path; the panfrost_gem_open WARN
-(madv != WILLNEED on a PRIME import) seen with Angelfish on the GPU.
+18. RELEASE IMAGE (2026-10-07: kernel 7.0, prebuilt microSD image)
+--------------------------------------------------------------------------------
+- Kernel moved from 7.0-rc1 to 7.0 final; every patch applied unchanged.
+  The release boot.img is built from the pmbootstrap package's vmlinuz + dtb
+  (so its modules match the image's /lib/modules/7.0.0). Its bootargs carry
+  no pmos_*_uuid, so the initramfs finds pmOS_boot/pmOS_root by label (if a
+  UUID is given and missing, find_partition does NOT fall back to labels).
+- pmbootstrap: postmarketos-ui-plasma-mobile has pmb:support-systemd only,
+  so `ui=plasma-mobile` forces systemd. Use ui=console + service_manager=
+  openrc and --add postmarketos-ui-plasma-mobile; its -openrc subpackage's
+  post-install enables tinydm and sets the plasma-mobile session.
+- "Not authorized to control networking" in Plasma: polkit came as
+  polkit + polkit-noelogind-libs, so polkitd cannot see the elogind
+  session as active and NetworkManager's plugdev rule (subject.active)
+  never matches. Fix: `apk add polkit-elogind '!polkit-noelogind-libs'`.
+  After the swap the old polkitd (D-Bus activated, not under OpenRC) keeps
+  running until killed - restart it, then pkcheck against plasmashell's
+  pid says yes.
+- Bluetooth needs bluez-deprecated (hciattach) and the patchram at
+  /etc/firmware/BCM4347B0.hcd (= bcm4361B0_semco.hcd; the chip reports its
+  ROM as BCM4347B0). Re-running hciattach on an already-initialised chip
+  times out (it is left at 3 Mbaud) - only the first start after boot works.
+- Root partition growth on first boot needs `pmos.force-partition-resize`
+  on the cmdline (pmbootstrap usually puts it in its own boot.img; ours is
+  uniLoader, so it lives in the dtb bootargs - greatlte-grow-rootfs.patch).
+  With a UUID root on UFS (/dev/sda21) it is a no-op.
+- tools/install-rootfs-addons.sh does the rest (g3d, local.d cpuspeed,
+  hciattach + udev rule, firmware names, chrony resync hook).
 
 --------------------------------------------------------------------------------
 11. TODO / KNOWN REMAINING WORK
@@ -706,7 +754,7 @@ with the clocks off on the display path; the panfrost_gem_open WARN
 [ ] GPU/display: simpledrm only (llvmpipe); panfrost/Mesa for Mali-G71
     (needs G3D power domain/clocks - CMU_G3D not modeled yet either).
 [x] UFS internal storage driver (2026-10-06, section 16).
-[ ] Browser start-up freeze (section 17).
+[x] Browser start-up freeze: firmware-owned RAM was not reserved (section 17).
 [ ] Consider re-pairing resilience: a tiny phone-side script for
     discoverable/agent state if bonds break again.
 [ ] bnep-up could daemonize properly + auto-reconnect instead of pause().

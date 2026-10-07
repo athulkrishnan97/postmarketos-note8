@@ -1,0 +1,27 @@
+From f001ce3a7c14d4a69e64b9d167e8d1ca3c307dc8 Mon Sep 17 00:00:00 2001
+From: Athul <athulkrishnan97@users.noreply.github.com>
+Date: Wed, 7 Oct 2026 19:40:14 +0100
+Subject: [PATCH] greatlte: let the initramfs grow the root partition on first
+ boot
+
+pmbootstrap normally passes pmos.force-partition-resize through its own
+boot.img cmdline; our boot image is uniLoader + Image + dtb, so the
+argument has to come from the dtb bootargs. Only acts when the root
+partition is followed by free space (a freshly written microSD image).
+---
+ arch/arm64/boot/dts/exynos/exynos8895-greatlte.dts | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/arch/arm64/boot/dts/exynos/exynos8895-greatlte.dts b/arch/arm64/boot/dts/exynos/exynos8895-greatlte.dts
+index 9f91c8f03..28bc4851c 100644
+--- a/arch/arm64/boot/dts/exynos/exynos8895-greatlte.dts
++++ b/arch/arm64/boot/dts/exynos/exynos8895-greatlte.dts
+@@ -22,7 +22,7 @@ aliases {
+ 	};
+ 
+ 	chosen {
+-		bootargs = "fbcon=font:TER16x32 loglevel=4 softlockup_panic=1 hung_task_panic=1 panic=5 cma=384M@0x80000000-0xbc000000";
++		bootargs = "pmos.force-partition-resize fbcon=font:TER16x32 loglevel=4 softlockup_panic=1 hung_task_panic=1 panic=5 cma=384M@0x80000000-0xbc000000";
+ 	};
+ 
+ 	memory@80000000 {
