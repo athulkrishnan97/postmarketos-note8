@@ -1,0 +1,501 @@
+From 40151eadc1ac57eac790d3487f474321c15df848 Mon Sep 17 00:00:00 2001
+From: Athul <athulkrishnan97@users.noreply.github.com>
+Date: Wed, 7 Oct 2026 23:01:21 +0100
+Subject: [PATCH] thermal/exynos: add Exynos 8895 TMU support and greatlte
+ thermal zones
+
+The 8895 TMU uses the Exynos7 threshold/interrupt layout for sensor 0 but
+differs in calibration: per-sensor trim words (TRIMINFO + 4n, 85 C point at
+bit 9, calibration type at bit 23) and the sense amplifier's reference
+voltage / slope taken from TRIMINFO0/1. One TMU block carries several
+sensors; like the vendor driver ("balance" mode) the reading is
+max(sensor0, sensorN - 20 C), the non-zero sensors being hot spots.
+Sensors are selected with "samsung,sensors". The hardware thermal trip is
+left as the bootloader set it (off); the critical trip uses its interrupt.
+
+Thermal zones follow the stock N950F tables: CPU throttling from 83 C with
+extra trips at 88/93/98 C that each force a minimum cooling state (plain
+step_wise with one passive trip let the die sit at ~100 C on a slow climb),
+critical at 115 C. Without any of this the SoC overheated under sustained
+load (thermal runaway past 150 C and a hard reset).
+
+Tested: 4 big cores at 2.3 GHz for 2 min -> peak 92 C, steady 86 C;
+all 8 cores under schedutil -> steady 88 C.
+---
+ arch/arm64/boot/dts/exynos/exynos8895.dtsi | 129 ++++++++++++++++
+ drivers/thermal/samsung/exynos_tmu.c       | 168 ++++++++++++++++++++-
+ 2 files changed, 290 insertions(+), 7 deletions(-)
+
+diff --git a/arch/arm64/boot/dts/exynos/exynos8895.dtsi b/arch/arm64/boot/dts/exynos/exynos8895.dtsi
+index 4b6010bd5..c09c4f28a 100644
+--- a/arch/arm64/boot/dts/exynos/exynos8895.dtsi
++++ b/arch/arm64/boot/dts/exynos/exynos8895.dtsi
+@@ -9,6 +9,7 @@
+ #include <dt-bindings/gpio/gpio.h>
+ #include <dt-bindings/interrupt-controller/arm-gic.h>
+ #include <dt-bindings/interrupt-controller/irq.h>
++#include <dt-bindings/thermal/thermal.h>
+ 
+ / {
+ 	compatible = "samsung,exynos8895";
+@@ -73,6 +74,7 @@ cpu4: cpu@0 {
+ 			clock-names = "cluster1_clk";
+ 			operating-points-v2 = <&cluster1_opp_table>;
+ 			cpu-supply = <&buck2_reg>;
++			#cooling-cells = <2>;
+ 		};
+ 
+ 		cpu5: cpu@1 {
+@@ -84,6 +86,7 @@ cpu5: cpu@1 {
+ 			clock-names = "cluster1_clk";
+ 			operating-points-v2 = <&cluster1_opp_table>;
+ 			cpu-supply = <&buck2_reg>;
++			#cooling-cells = <2>;
+ 		};
+ 
+ 		cpu6: cpu@2 {
+@@ -95,6 +98,7 @@ cpu6: cpu@2 {
+ 			clock-names = "cluster1_clk";
+ 			operating-points-v2 = <&cluster1_opp_table>;
+ 			cpu-supply = <&buck2_reg>;
++			#cooling-cells = <2>;
+ 		};
+ 
+ 		cpu7: cpu@3 {
+@@ -106,6 +110,7 @@ cpu7: cpu@3 {
+ 			clock-names = "cluster1_clk";
+ 			operating-points-v2 = <&cluster1_opp_table>;
+ 			cpu-supply = <&buck2_reg>;
++			#cooling-cells = <2>;
+ 		};
+ 
+ 		cpu0: cpu@100 {
+@@ -117,6 +122,7 @@ cpu0: cpu@100 {
+ 			clock-names = "cluster0_clk";
+ 			operating-points-v2 = <&cluster0_opp_table>;
+ 			cpu-supply = <&buck3_reg>;
++			#cooling-cells = <2>;
+ 		};
+ 
+ 		cpu1: cpu@101 {
+@@ -128,6 +134,7 @@ cpu1: cpu@101 {
+ 			clock-names = "cluster0_clk";
+ 			operating-points-v2 = <&cluster0_opp_table>;
+ 			cpu-supply = <&buck3_reg>;
++			#cooling-cells = <2>;
+ 		};
+ 
+ 		cpu2: cpu@102 {
+@@ -139,6 +146,7 @@ cpu2: cpu@102 {
+ 			clock-names = "cluster0_clk";
+ 			operating-points-v2 = <&cluster0_opp_table>;
+ 			cpu-supply = <&buck3_reg>;
++			#cooling-cells = <2>;
+ 		};
+ 
+ 		cpu3: cpu@103 {
+@@ -150,6 +158,7 @@ cpu3: cpu@103 {
+ 			clock-names = "cluster0_clk";
+ 			operating-points-v2 = <&cluster0_opp_table>;
+ 			cpu-supply = <&buck3_reg>;
++			#cooling-cells = <2>;
+ 		};
+ 	};
+ 
+@@ -287,6 +296,101 @@ pmu-mongoose-m2 {
+ 				     <&cpu7>;
+ 	};
+ 
++	thermal-zones {
++		/*
++		 * Trips follow the stock N950F tables: CPU throttling from
++		 * 83 C, the hardware limit at 115 C. The non-zero sensors are
++		 * hot spots, read through the stock -20 C "balance" offset.
++		 */
++		cpu_thermal: cpu-thermal {
++			polling-delay-passive = <100>;
++			polling-delay = <1000>;
++			thermal-sensors = <&tmu_cpu>;
++
++			/*
++			 * step_wise only adds throttling while the temperature
++			 * is clearly rising, which a slow climb with sensor
++			 * noise rarely is; each trip therefore also forces a
++			 * minimum cooling state (big: 13 OPPs, little: 7).
++			 */
++			trips {
++				cpu_alert0: cpu-alert0 {
++					temperature = <83000>;
++					hysteresis = <3000>;
++					type = "passive";
++				};
++
++				cpu_alert1: cpu-alert1 {
++					temperature = <88000>;
++					hysteresis = <3000>;
++					type = "passive";
++				};
++
++				cpu_alert2: cpu-alert2 {
++					temperature = <93000>;
++					hysteresis = <3000>;
++					type = "passive";
++				};
++
++				cpu_alert3: cpu-alert3 {
++					temperature = <98000>;
++					hysteresis = <3000>;
++					type = "passive";
++				};
++
++				cpu_crit: cpu-crit {
++					temperature = <115000>;
++					hysteresis = <0>;
++					type = "critical";
++				};
++			};
++
++			cooling-maps {
++				/* big <= 2002 MHz, little <= 1456 MHz */
++				map0 {
++					trip = <&cpu_alert0>;
++					cooling-device = <&cpu4 THERMAL_NO_LIMIT 2>,
++							 <&cpu0 THERMAL_NO_LIMIT 1>;
++				};
++
++				/* big <= 1937 MHz, little <= 1248 MHz */
++				map1 {
++					trip = <&cpu_alert1>;
++					cooling-device = <&cpu4 3 5>,
++							 <&cpu0 2 3>;
++				};
++
++				/* big <= 1469 MHz, little <= 1053 MHz */
++				map2 {
++					trip = <&cpu_alert2>;
++					cooling-device = <&cpu4 6 8>,
++							 <&cpu0 3 4>;
++				};
++
++				/* big <= 1066 MHz, little <= 598 MHz */
++				map3 {
++					trip = <&cpu_alert3>;
++					cooling-device = <&cpu4 9 12>,
++							 <&cpu0 5 6>;
++				};
++			};
++		};
++
++		gpu_thermal: gpu-thermal {
++			polling-delay-passive = <100>;
++			polling-delay = <1000>;
++			thermal-sensors = <&tmu_gpu>;
++
++			trips {
++				gpu_crit: gpu-crit {
++					temperature = <115000>;
++					hysteresis = <0>;
++					type = "critical";
++				};
++			};
++		};
++	};
++
+ 	psci {
+ 		compatible = "arm,psci";
+ 		method = "smc";
+@@ -308,6 +412,31 @@ chipid@10000000 {
+ 			reg = <0x10000000 0x24>;
+ 		};
+ 
++		/*
++		 * One TMU block per sensor group. 0x10080000 carries the CPU
++		 * sensors (0, 2-5 big cluster hot spots, 1 little cluster),
++		 * 0x10084000 sensor 0 is the GPU.
++		 */
++		tmu_cpu: tmu@10080000 {
++			compatible = "samsung,exynos8895-tmu";
++			reg = <0x10080000 0x400>;
++			interrupts = <GIC_SPI 451 IRQ_TYPE_LEVEL_HIGH>;
++			clocks = <&cmu_peris CLK_GOUT_PERIS_BUSIF_TMU_PCLK>;
++			clock-names = "tmu_apbif";
++			samsung,sensors = <0x3f>;
++			#thermal-sensor-cells = <0>;
++		};
++
++		tmu_gpu: tmu@10084000 {
++			compatible = "samsung,exynos8895-tmu";
++			reg = <0x10084000 0x400>;
++			interrupts = <GIC_SPI 452 IRQ_TYPE_LEVEL_HIGH>;
++			clocks = <&cmu_peris CLK_GOUT_PERIS_BUSIF_TMU_PCLK>;
++			clock-names = "tmu_apbif";
++			samsung,sensors = <0x1>;
++			#thermal-sensor-cells = <0>;
++		};
++
+ 		cmu_peris: clock-controller@10010000 {
+ 			compatible = "samsung,exynos8895-cmu-peris";
+ 			reg = <0x10010000 0x8000>;
+diff --git a/drivers/thermal/samsung/exynos_tmu.c b/drivers/thermal/samsung/exynos_tmu.c
+index 47a99b3c5..0da251768 100644
+--- a/drivers/thermal/samsung/exynos_tmu.c
++++ b/drivers/thermal/samsung/exynos_tmu.c
+@@ -116,6 +116,23 @@
+ #define EXYNOS7_EMUL_DATA_SHIFT			7
+ #define EXYNOS7_EMUL_DATA_MASK			0x1ff
+ 
++/* Exynos8895 specific registers */
++#define EXYNOS8895_TMU_REG_TRIMINFO(n)		(0x0 + (n) * 4)
++#define EXYNOS8895_TMU_REG_CURRENT_TEMP1_0	0x40
++#define EXYNOS8895_TRIMINFO_85_SHIFT		9
++#define EXYNOS8895_TRIMINFO_CALIB_SEL_SHIFT	23
++#define EXYNOS8895_TRIMINFO_VREF_SHIFT		18
++#define EXYNOS8895_TRIMINFO_VREF_MASK		0x1f
++#define EXYNOS8895_TRIMINFO_SLOPE_SHIFT		18
++#define EXYNOS8895_TRIMINFO_SLOPE_MASK		0xf
++#define EXYNOS8895_TMU_TEMP_SHIFT		9
++#define EXYNOS8895_MAX_SENSORS			8
++/*
++ * The sensors other than the first sit at the hot spots of the block; the
++ * vendor driver reports max(sensor0, sensorN - 20) ("balance" mode).
++ */
++#define EXYNOS8895_BALANCE_OFFSET		20
++
+ #define EXYNOS_FIRST_POINT_TRIM			25
+ #define EXYNOS_SECOND_POINT_TRIM		85
+ 
+@@ -133,6 +150,7 @@ enum soc_type {
+ 	SOC_ARCH_EXYNOS5420_TRIMINFO,
+ 	SOC_ARCH_EXYNOS5433,
+ 	SOC_ARCH_EXYNOS7,
++	SOC_ARCH_EXYNOS8895,
+ };
+ 
+ /**
+@@ -182,6 +200,9 @@ struct exynos_tmu_data {
+ 	u32 min_efuse_value;
+ 	u32 max_efuse_value;
+ 	u16 temp_error1, temp_error2;
++	u32 sensors;
++	u16 sensor_error1[EXYNOS8895_MAX_SENSORS];
++	u16 sensor_error2[EXYNOS8895_MAX_SENSORS];
+ 	u8 gain;
+ 	u8 reference_voltage;
+ 	struct thermal_zone_device *tzd;
+@@ -232,8 +253,9 @@ static int code_to_temp(struct exynos_tmu_data *data, u16 temp_code)
+ static void sanitize_temp_error(struct exynos_tmu_data *data, u32 trim_info)
+ {
+ 	u16 tmu_temp_mask =
+-		(data->soc == SOC_ARCH_EXYNOS7) ? EXYNOS7_TMU_TEMP_MASK
+-						: EXYNOS_TMU_TEMP_MASK;
++		(data->soc == SOC_ARCH_EXYNOS7 ||
++		 data->soc == SOC_ARCH_EXYNOS8895) ? EXYNOS7_TMU_TEMP_MASK
++						   : EXYNOS_TMU_TEMP_MASK;
+ 
+ 	data->temp_error1 = trim_info & tmu_temp_mask;
+ 	data->temp_error2 = ((trim_info >> EXYNOS_TRIMINFO_85_SHIFT) &
+@@ -355,8 +377,9 @@ static void exynos_tmu_update_temp(struct exynos_tmu_data *data, int reg_off,
+ 	u32 th;
+ 
+ 	tmu_temp_mask =
+-		(data->soc == SOC_ARCH_EXYNOS7) ? EXYNOS7_TMU_TEMP_MASK
+-						: EXYNOS_TMU_TEMP_MASK;
++		(data->soc == SOC_ARCH_EXYNOS7 ||
++		 data->soc == SOC_ARCH_EXYNOS8895) ? EXYNOS7_TMU_TEMP_MASK
++						   : EXYNOS_TMU_TEMP_MASK;
+ 
+ 	th = readl(data->base + reg_off);
+ 	th &= ~(tmu_temp_mask << bit_off);
+@@ -582,6 +605,52 @@ static void exynos7_tmu_initialize(struct platform_device *pdev)
+ 	sanitize_temp_error(data, trim_info);
+ }
+ 
++static void exynos8895_tmu_initialize(struct platform_device *pdev)
++{
++	struct exynos_tmu_data *data = platform_get_drvdata(pdev);
++	u32 trim0, trim1, trim;
++	int i;
++
++	trim0 = readl(data->base + EXYNOS8895_TMU_REG_TRIMINFO(0));
++	trim1 = readl(data->base + EXYNOS8895_TMU_REG_TRIMINFO(1));
++
++	data->cal_type = (trim0 >> EXYNOS8895_TRIMINFO_CALIB_SEL_SHIFT) & 1 ?
++			 TYPE_TWO_POINT_TRIMMING : TYPE_ONE_POINT_TRIMMING;
++	/* the sense amplifier is trimmed per chip as well */
++	data->reference_voltage = (trim0 >> EXYNOS8895_TRIMINFO_VREF_SHIFT) &
++				  EXYNOS8895_TRIMINFO_VREF_MASK;
++	data->gain = (trim1 >> EXYNOS8895_TRIMINFO_SLOPE_SHIFT) &
++		     EXYNOS8895_TRIMINFO_SLOPE_MASK;
++
++	for (i = 0; i < EXYNOS8895_MAX_SENSORS; i++) {
++		if (!(data->sensors & BIT(i)))
++			continue;
++		trim = readl(data->base + EXYNOS8895_TMU_REG_TRIMINFO(i));
++		data->sensor_error1[i] = trim & EXYNOS7_TMU_TEMP_MASK;
++		data->sensor_error2[i] = (trim >> EXYNOS8895_TRIMINFO_85_SHIFT) &
++					 EXYNOS7_TMU_TEMP_MASK;
++		if (!data->sensor_error1[i] ||
++		    data->sensor_error1[i] < data->min_efuse_value ||
++		    data->sensor_error1[i] > data->max_efuse_value ||
++		    data->sensor_error2[i] <= data->sensor_error1[i]) {
++			dev_warn(&pdev->dev, "sensor %d: bad trim 0x%08x\n", i, trim);
++			data->sensors &= ~BIT(i);
++		}
++	}
++
++	if (!(data->sensors & BIT(0))) {
++		/* thresholds and interrupts work on sensor 0 only */
++		dev_warn(&pdev->dev, "sensor 0 unusable, using default trim\n");
++		data->sensor_error1[0] = data->efuse_value;
++		data->sensor_error2[0] = data->efuse_value +
++			(EXYNOS_SECOND_POINT_TRIM - EXYNOS_FIRST_POINT_TRIM);
++		data->sensors |= BIT(0);
++	}
++
++	data->temp_error1 = data->sensor_error1[0];
++	data->temp_error2 = data->sensor_error2[0];
++}
++
+ static void exynos4210_tmu_control(struct platform_device *pdev, bool on)
+ {
+ 	struct exynos_tmu_data *data = platform_get_drvdata(pdev);
+@@ -633,6 +702,25 @@ static void exynos7_tmu_control(struct platform_device *pdev, bool on)
+ 	writel(con, data->base + EXYNOS_TMU_REG_CONTROL);
+ }
+ 
++static void exynos8895_tmu_control(struct platform_device *pdev, bool on)
++{
++	struct exynos_tmu_data *data = platform_get_drvdata(pdev);
++	unsigned int con;
++
++	/*
++	 * The hardware thermal trip (CONTROL bit 12) is left as the bootloader
++	 * set it (off); the critical trip is handled through its interrupt.
++	 */
++	con = get_con_reg(data, readl(data->base + EXYNOS_TMU_REG_CONTROL));
++
++	if (on)
++		con |= BIT(EXYNOS_TMU_CORE_EN_SHIFT);
++	else
++		con &= ~BIT(EXYNOS_TMU_CORE_EN_SHIFT);
++
++	writel(con, data->base + EXYNOS_TMU_REG_CONTROL);
++}
++
+ static int exynos_get_temp(struct thermal_zone_device *tz, int *temp)
+ {
+ 	struct exynos_tmu_data *data = thermal_zone_device_priv(tz);
+@@ -671,7 +759,8 @@ static u32 get_emul_con_reg(struct exynos_tmu_data *data, unsigned int val,
+ 
+ 		val &= ~(EXYNOS_EMUL_TIME_MASK << EXYNOS_EMUL_TIME_SHIFT);
+ 		val |= (EXYNOS_EMUL_TIME << EXYNOS_EMUL_TIME_SHIFT);
+-		if (data->soc == SOC_ARCH_EXYNOS7) {
++		if (data->soc == SOC_ARCH_EXYNOS7 ||
++		    data->soc == SOC_ARCH_EXYNOS8895) {
+ 			val &= ~(EXYNOS7_EMUL_DATA_MASK <<
+ 				EXYNOS7_EMUL_DATA_SHIFT);
+ 			val |= (temp_to_code(data, temp) <<
+@@ -701,7 +790,8 @@ static void exynos4412_tmu_set_emulation(struct exynos_tmu_data *data,
+ 		emul_con = EXYNOS5260_EMUL_CON;
+ 	else if (data->soc == SOC_ARCH_EXYNOS5433)
+ 		emul_con = EXYNOS5433_TMU_EMUL_CON;
+-	else if (data->soc == SOC_ARCH_EXYNOS7)
++	else if (data->soc == SOC_ARCH_EXYNOS7 ||
++		 data->soc == SOC_ARCH_EXYNOS8895)
+ 		emul_con = EXYNOS7_TMU_REG_EMUL_CON;
+ 	else
+ 		emul_con = EXYNOS_EMUL_CON;
+@@ -756,6 +846,45 @@ static int exynos7_tmu_read(struct exynos_tmu_data *data)
+ 		EXYNOS7_TMU_TEMP_MASK;
+ }
+ 
++/*
++ * Returns the hottest sensor of this TMU instance, expressed as a sensor 0
++ * code so that the common code_to_temp() and threshold code apply.
++ */
++static int exynos8895_tmu_read(struct exynos_tmu_data *data)
++{
++	int i, code, t, max_temp = INT_MIN;
++	u32 reg, shift;
++
++	for (i = 0; i < EXYNOS8895_MAX_SENSORS; i++) {
++		if (!(data->sensors & BIT(i)))
++			continue;
++
++		/* sensors 0-1 in CURRENT_TEMP1_0, then three per register */
++		if (i < 2) {
++			reg = EXYNOS8895_TMU_REG_CURRENT_TEMP1_0;
++			shift = EXYNOS8895_TMU_TEMP_SHIFT * i;
++		} else {
++			reg = EXYNOS8895_TMU_REG_CURRENT_TEMP1_0 + ((i - 2) / 3 + 1) * 4;
++			shift = EXYNOS8895_TMU_TEMP_SHIFT * ((i - 2) % 3);
++		}
++		code = (readl(data->base + reg) >> shift) & EXYNOS7_TMU_TEMP_MASK;
++
++		if (data->cal_type == TYPE_ONE_POINT_TRIMMING)
++			t = code - data->sensor_error1[i] + EXYNOS_FIRST_POINT_TRIM;
++		else
++			t = (code - data->sensor_error1[i]) *
++			    (EXYNOS_SECOND_POINT_TRIM - EXYNOS_FIRST_POINT_TRIM) /
++			    (data->sensor_error2[i] - data->sensor_error1[i]) +
++			    EXYNOS_FIRST_POINT_TRIM;
++
++		if (i)
++			t -= EXYNOS8895_BALANCE_OFFSET;
++		max_temp = max(max_temp, t);
++	}
++
++	return temp_to_code(data, clamp(max_temp, 0, 255));
++}
++
+ static irqreturn_t exynos_tmu_threaded_irq(int irq, void *id)
+ {
+ 	struct exynos_tmu_data *data = id;
+@@ -782,7 +911,8 @@ static void exynos4210_tmu_clear_irqs(struct exynos_tmu_data *data)
+ 	if (data->soc == SOC_ARCH_EXYNOS5260) {
+ 		tmu_intstat = EXYNOS5260_TMU_REG_INTSTAT;
+ 		tmu_intclear = EXYNOS5260_TMU_REG_INTCLEAR;
+-	} else if (data->soc == SOC_ARCH_EXYNOS7) {
++	} else if (data->soc == SOC_ARCH_EXYNOS7 ||
++		   data->soc == SOC_ARCH_EXYNOS8895) {
+ 		tmu_intstat = EXYNOS7_TMU_REG_INTPEND;
+ 		tmu_intclear = EXYNOS7_TMU_REG_INTPEND;
+ 	} else if (data->soc == SOC_ARCH_EXYNOS5433) {
+@@ -833,6 +963,9 @@ static const struct of_device_id exynos_tmu_match[] = {
+ 	}, {
+ 		.compatible = "samsung,exynos7-tmu",
+ 		.data = (const void *)SOC_ARCH_EXYNOS7,
++	}, {
++		.compatible = "samsung,exynos8895-tmu",
++		.data = (const void *)SOC_ARCH_EXYNOS8895,
+ 	},
+ 	{ },
+ };
+@@ -945,6 +1078,27 @@ static int exynos_map_dt_data(struct platform_device *pdev)
+ 		data->min_efuse_value = 15;
+ 		data->max_efuse_value = 100;
+ 		break;
++	case SOC_ARCH_EXYNOS8895:
++		/* the threshold/interrupt layout of sensor 0 matches Exynos7 */
++		data->tmu_set_low_temp = exynos7_tmu_set_low_temp;
++		data->tmu_set_high_temp = exynos7_tmu_set_high_temp;
++		data->tmu_disable_low = exynos7_tmu_disable_low;
++		data->tmu_disable_high = exynos7_tmu_disable_high;
++		data->tmu_set_crit_temp = exynos7_tmu_set_crit_temp;
++		data->tmu_initialize = exynos8895_tmu_initialize;
++		data->tmu_control = exynos8895_tmu_control;
++		data->tmu_read = exynos8895_tmu_read;
++		data->tmu_set_emulation = exynos4412_tmu_set_emulation;
++		data->tmu_clear_irqs = exynos4210_tmu_clear_irqs;
++		/* gain, reference voltage and calibration come from the trim */
++		data->efuse_value = 270;
++		data->min_efuse_value = 200;
++		data->max_efuse_value = 350;
++		data->sensors = BIT(0);
++		of_property_read_u32(pdev->dev.of_node, "samsung,sensors",
++				     &data->sensors);
++		data->sensors &= GENMASK(EXYNOS8895_MAX_SENSORS - 1, 0);
++		break;
+ 	default:
+ 		dev_err(&pdev->dev, "Platform not supported\n");
+ 		return -EINVAL;

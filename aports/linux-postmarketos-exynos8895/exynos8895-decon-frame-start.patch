@@ -1,0 +1,76 @@
+From ba675a45cfa5bfce59d4b799599cc9f24ea70d2c Mon Sep 17 00:00:00 2001
+From: Athul <athulkrishnan97@users.noreply.github.com>
+Date: Wed, 7 Oct 2026 23:01:21 +0100
+Subject: [PATCH] drm/exynos8895-decon: send vblank and flip events at frame
+ start
+
+The DECON has separate interrupt lines for frame start (the TE-triggered
+transfer start, where the shadow registers latch) and frame done (the end
+of the ~15 ms DSI transfer). Only platform_get_irq(pdev, 1) = frame done
+was requested, so the frame-start status was handled ~15 ms late, just
+1.8 ms before the next latch. The compositor got the flip event at frame
+done, committed ~3 ms later - after the next latch - and every frame
+waited an extra refresh: KWin was held at 30 fps.
+
+Request both lines by name; vblank and the flip event now come at frame
+start. Measured: commit to flip event 2.8 ms, 60 fps while scrolling.
+---
+ drivers/gpu/drm/bridge/exynos8895-decon.c | 21 ++++++++++++++++++++-
+ 1 file changed, 20 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/gpu/drm/bridge/exynos8895-decon.c b/drivers/gpu/drm/bridge/exynos8895-decon.c
+index b27635703..c3c6fc1b1 100644
+--- a/drivers/gpu/drm/bridge/exynos8895-decon.c
++++ b/drivers/gpu/drm/bridge/exynos8895-decon.c
+@@ -246,6 +246,7 @@ struct exynos8895_decon {
+ 	struct drm_panel *panel;
+ 
+ 	int irq;
++	int irq_start;
+ 	struct completion frame_done;
+ 	bool enabled;
+ 	/* page-flip event waiting for its frame (protected by drm.event_lock) */
+@@ -917,6 +918,7 @@ static void decon_crtc_atomic_enable(struct drm_crtc *crtc,
+ 
+ 	dev_info(decon->dev, "CRTC enable: step start\n");
+ 	decon->enabled = true;
++	enable_irq(decon->irq_start);
+ 	enable_irq(decon->irq);
+ 
+ 	decon_hw_start(decon);
+@@ -937,6 +939,7 @@ static void decon_crtc_atomic_disable(struct drm_crtc *crtc,
+ 
+ 	drm_crtc_vblank_off(crtc);
+ 	disable_irq(decon->irq);
++	disable_irq(decon->irq_start);
+ 	decon_hw_stop(decon);
+ 	decon->enabled = false;
+ 
+@@ -1325,10 +1328,26 @@ static int exynos8895_decon_probe(struct platform_device *pdev)
+ 	}
+ 
+ 	/* frame done interrupt */
+-	decon->irq = platform_get_irq(pdev, 1);
++	/*
++	 * Separate GIC lines: frame start (TE-triggered transfer start, when
++	 * the shadow registers latch) and frame done (~15 ms later, end of
++	 * the DSI transfer).  The flip event and vblank must come from frame
++	 * start; with only the frame-done line the event arrived after the
++	 * next latch point and every frame waited an extra refresh (30 fps).
++	 */
++	decon->irq_start = platform_get_irq_byname(pdev, "frame-start");
++	if (decon->irq_start < 0)
++		return decon->irq_start;
++	decon->irq = platform_get_irq_byname(pdev, "frame-done");
+ 	if (decon->irq < 0)
+ 		return decon->irq;
+ 
++	ret = devm_request_irq(dev, decon->irq_start, decon_irq_handler, 0,
++			       dev_name(dev), decon);
++	if (ret)
++		return dev_err_probe(dev, ret, "failed to request frame start irq\n");
++	disable_irq(decon->irq_start);
++
+ 	ret = devm_request_irq(dev, decon->irq, decon_irq_handler, 0,
+ 			       dev_name(dev), decon);
+ 	if (ret)

@@ -1,0 +1,52 @@
+From 9570eebec4fc283cc4776b506617de96a4ff88ba Mon Sep 17 00:00:00 2001
+From: Athul <athulkrishnan97@users.noreply.github.com>
+Date: Wed, 7 Oct 2026 23:01:22 +0100
+Subject: [PATCH] arm64: dts: exynos8895: big cluster OPPs up to the stock
+ 2.314 GHz
+
+Add the 1807-2314 MHz steps with the ECT voltages (worst ASV bin of table
+version 1 plus ~12.5 mV, 6.25 mV aligned; 2314 kept at least at the 2158
+value). The old note that the big cluster hangs above 1.7 GHz came from
+the swapped cluster tables (the A53s ran the big table undervolted); with
+the clusters fixed each step passes a hash-checked load test, and the TMU
+thermal zones keep sustained load in check.
+---
+ arch/arm64/boot/dts/exynos/exynos8895.dtsi | 25 ++++++++++++++++++++++
+ 1 file changed, 25 insertions(+)
+
+diff --git a/arch/arm64/boot/dts/exynos/exynos8895.dtsi b/arch/arm64/boot/dts/exynos/exynos8895.dtsi
+index c09c4f28a..dca60883a 100644
+--- a/arch/arm64/boot/dts/exynos/exynos8895.dtsi
++++ b/arch/arm64/boot/dts/exynos/exynos8895.dtsi
+@@ -225,6 +225,31 @@ cluster1_opp_table: opp-table-1 {
+ 
+ 
+ 
++		opp-2314000000 {
++			opp-hz = /bits/ 64 <2314000000>;
++			opp-microvolt = <1137500>;
++		};
++
++		opp-2158000000 {
++			opp-hz = /bits/ 64 <2158000000>;
++			opp-microvolt = <1131250>;
++		};
++
++		opp-2002000000 {
++			opp-hz = /bits/ 64 <2002000000>;
++			opp-microvolt = <1087500>;
++		};
++
++		opp-1937000000 {
++			opp-hz = /bits/ 64 <1937000000>;
++			opp-microvolt = <1075000>;
++		};
++
++		opp-1807000000 {
++			opp-hz = /bits/ 64 <1807000000>;
++			opp-microvolt = <1043750>;
++		};
++
+ 		opp-1703000000 {
+ 			opp-hz = /bits/ 64 <1703000000>;
+ 			opp-microvolt = <1025000>;

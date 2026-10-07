@@ -1,7 +1,8 @@
 #!/bin/sh
-# greatlte: after boot, raise CPUs to the validated max (1.7GHz big /
-# 1.69GHz little) with voltage scaling. Booting AT these speeds races
-# udev module loading and can oops; switching after boot is proven.
+# greatlte: after boot, let schedutil scale both clusters up to the stock
+# maxima (2.314 GHz big / 1.69 GHz little). The TMU thermal zone throttles
+# from 83 C. Switching only after boot: running at full speed while udev
+# loads modules has oopsed before.
 n=0
 while [ $n -lt 60 ]; do
 	[ -d /sys/devices/system/cpu/cpu4/cpufreq ] && break
@@ -10,6 +11,6 @@ while [ $n -lt 60 ]; do
 done
 sleep 3
 for p in /sys/devices/system/cpu/cpu0/cpufreq /sys/devices/system/cpu/cpu4/cpufreq; do
-	[ -d "$p" ] && echo performance > "$p/scaling_governor" 2>/dev/null
+	[ -d "$p" ] && echo schedutil > "$p/scaling_governor" 2>/dev/null
 done
 echo "cpuspeed: governors set" > /dev/kmsg 2>/dev/null

@@ -3,7 +3,8 @@
 Mainline Linux (7.0) running on the Exynos 8895 Samsung Galaxy Note 8,
 with a fully open-source boot chain, a **native display driver** (DECON + DSI +
 DSC for the S6E3HA6 AMOLED panel), a GPU-composited desktop on the Mali-G71
-(panfrost, 546 MHz), CPU frequency scaling with real voltage control, the
+(panfrost, 546 MHz), CPU frequency scaling up to the stock 2.3 GHz with real
+voltage control and thermal throttling, the
 **internal UFS storage** (rootfs on `userdata`, no microSD needed), WiFi,
 Bluetooth PAN networking, and KDE Plasma Mobile with a working touchscreen
 and web browsers (Firefox, Angelfish).
@@ -28,12 +29,13 @@ the uniLoader board files, and the phone-side runtime addons.
 |---|---|
 | Boot | Samsung bootloader → uniLoader → mainline kernel → postmarketOS rootfs from **internal UFS** (or microSD) |
 | Display | Native KMS: **DECON_f → dual DSC encoders → DSI (4 lanes) → S6E3HA6** AMOLED, 1440×2960, command mode with real vblank (59 Hz panel refresh), zero-copy GPU scan-out (PRIME) |
-| CPU frequency scaling | Both clusters, 455 MHz – 1.7 GHz (big) / 455 MHz – 1.69 GHz (little), with **voltage scaling** via the S2MPS17 PMIC over a ported SPEEDY bus driver. Cluster clocks/rails and voltages match the phone's ECT tables (an earlier cluster swap undervolted the A53s). |
+| CPU frequency scaling | Stock maxima: 741 MHz – **2.314 GHz** (big Mongoose) / 455 MHz – 1.69 GHz (little A53), `schedutil`, with **voltage scaling** via the S2MPS17 PMIC over a ported SPEEDY bus driver. Cluster clocks/rails and voltages match the phone's ECT tables. |
+| Thermal | Exynos 8895 **TMU** (mainline `exynos_tmu` + an 8895 variant): CPU throttling from 83 °C with graded trips, critical shutdown at 115 °C. Sustained all-core load holds ~88 °C. Without it the SoC ran away past 150 °C and reset. |
 | GPU | Mali-G71 MP20 via mainline **panfrost** at **546 MHz** (stock max, ECT voltage + margin), Mesa kmsro pairs it with the display; kmscube 60 fps |
 | Touchscreen | Samsung s6sy761 (Y661), multi-touch, works in console **and** Plasma Mobile |
 | WiFi | Broadcom **BCM4361**B0 (PCIe, brcmfmac) — auto-connects at boot. Use 2.4 GHz WPA2. |
 | Bluetooth | BCM4347B0 UART, works (incl. a BT-PAN IP link to a laptop) |
-| GUI | KDE Plasma Mobile (tinydm autologin), GPU-composited, ~24–30 fps; output scale 3 |
+| GUI | KDE Plasma Mobile (tinydm autologin), GPU-composited, **60 fps** (vblank/flip events at DECON frame start); output scale 3 |
 | Web browsers | Firefox and Angelfish (the start-up hard freeze was Linux using firmware-owned RAM — fixed by reserving the stock carveouts, see docs/BRINGUP.md §17) |
 | SSH | over WiFi or the Bluetooth PAN link |
 | Internal storage | Toshiba THGAF4G9N4LBAIRA 64 GB **UFS 2.1**, mainline `ufs-exynos` with an 8895 variant: **HS-G3 rate B ×2 lanes, ~600 MB/s**. Root on `USERDATA` (sda21, 52.7 GB), `/boot` on `CACHE` (sda16). All 21 GPT partitions + boot/RPMB LUNs visible. |
@@ -44,13 +46,11 @@ the uniLoader board files, and the phone-side runtime addons.
 | Feature | Why | Path forward |
 |---|---|---|
 | microSD under heavy reads | No `vqmmc` (S2MPS17 LDO2) yet, so UHS signalling is never switched to 1.8 V: sustained reads can hit command timeouts / I/O errors. Irrelevant when booting from UFS. | Add LDO2 + downstream per-mode sample timings. |
-| Brightness control | The panel has no DCS 0x51; Samsung dims with AOR (0xB1) + gamma/ELVSS tables, and raw writes mid-frame glitch. | A frame-synchronised backlight device in the panel driver. |
+| Brightness control | The panel has no DCS 0x51; Samsung dims with AOR (0xB1) + gamma/ELVSS tables, and raw writes mid-frame glitch. Plasma falls back to **software brightness**, which recolours every pixel on the GPU: below 100 % the desktop gets noticeably slower. | A frame-synchronised backlight device in the panel driver. |
 | Boot console on the panel | Enabling fbdev emulation (fbcon) crashes early boot; the screen stays black until Plasma starts. | Debug the fbdev path against the DECON driver. |
-| Desktop smoothness | Plasma runs ~24–30 fps: plasmashell + KWin GPU time per frame misses the 16.7 ms budget at 546 MHz. | Profile; GPU DVFS above 546 MHz is disabled in stock too. |
-| Big CPU above 1.7 GHz | Not yet re-tested after the cluster clock/rail fix (the old hangs were most likely the A53s being undervolted). | Re-test the 2.3 GHz stock OPPs with the ECT voltages. |
 | 5 GHz / WPA3 WiFi | The 2.4 GHz WPA2 SSID connects; the 5 GHz WPA3 one scans but won't associate. | Investigate firmware/CLM/regulatory. |
 | Sustained full-speed WiFi RX | >5–10 min of heavy download instantly reboots the phone (no panic log). Suspect brcmfmac. | Trickled transfers work around it; needs a proper bug hunt. |
-| USB to a PC | The dwc3 gadget runs on `dummy_udc` (virtual loopback) — no real USB data path until the dwc3/PHY work lands. | Port the dwc3 + USB-C role-switch setup. |
+| USB to a PC | No USB device controller yet (`dummy_hcd` is disabled: its virtual loopback only produced a fake `usb0`/`usb1` Ethernet pair). | Port the dwc3 + USB-C role-switch setup. |
 | S Pen (wacom w90xx) / hw keys | No mainline driver. | Port the downstream wacom_i2c-style driver. |
 | Full 6 GB RAM | Kernel sees 3.7 GB: the dts memory nodes cover 4 GB, and ~230 MB of that is reserved for firmware carveouts. | Fix the dts memory nodes. |
 
@@ -69,7 +69,11 @@ aports/                 postmarketOS device packages (build these with pmbootstr
                                    greatlte-grow-rootfs.patch (grow the
                                    microSD rootfs on first boot),
                                    greatlte-no-fw-fallback.patch (WiFi up in
-                                   ~6 s instead of ~2 min)
+                                   ~6 s instead of ~2 min),
+                                   exynos8895-decon-frame-start.patch (60 fps:
+                                   vblank/flip at frame start),
+                                   exynos8895-thermal.patch (TMU + thermal zones),
+                                   exynos8895-cpu-2314.patch (big cluster to 2.3 GHz)
   device-samsung-greatlte/         device package (initramfs hooks, device info)
   uniloader-samsung-greatlte/      bootloader package
 uniloader-files/        our uniLoader board port (2 files; applied onto upstream uniLoader)
@@ -78,10 +82,11 @@ rootfs-addons/          files to install into the phone rootfs
   etc-init.d/hciattach              Bluetooth UART attach (BCM4361, 3 Mbaud)
   etc-udev-rules.d/                 starts/stops hciattach on rfkill
   etc-NetworkManager-dispatcher.d/  resyncs the clock once WiFi is up (no RTC)
-  etc-local.d/cpuspeed.start        ramps CPUs to full speed after boot
+  etc-local.d/cpuspeed.start        switches both clusters to schedutil after boot
   usr-local-bin/bt-pan-up.sh        one-command BT-PAN network to a laptop
   firmware/                         BCM4361 wifi firmware + board NVRAM + BT .hcd
 tools/                  install-rootfs-addons.sh (put rootfs-addons into a pmbootstrap image),
+                        soak.sh (hash-checked per-CPU load test for clocks/thermals),
                         ect_parse.py (dump the bootloader's ECT voltage/PLL tables),
                         regdump.c (/dev/mem register ranges), reboot-download.c
 docs/BRINGUP.md         the full technical journey: every root cause we hit

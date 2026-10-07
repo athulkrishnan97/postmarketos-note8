@@ -474,8 +474,9 @@ power_save off` on the laptop. Laptop->phone direction was always fine.
        741000
 - STATUS (2026-10-03 late, VERIFIED): full chain works - both clusters
   scale with VOLTAGE coupling via S2MPS17 over a ported SPEEDY bus driver.
-  FINAL SHIPPING CONFIG: big (M2) 455MHz-1.703GHz, little (A53)
-  455MHz-1.690GHz (stock). 100s all-core stress PASSED at 1.703/1.690.
+  FINAL SHIPPING CONFIG (2026-10-03): big (M2) 455MHz-1.703GHz, little (A53)
+  455MHz-1.690GHz (stock). [Superseded: big now to 2.314 GHz with TMU
+  throttling, section 19.] 100s all-core stress PASSED at 1.703/1.690.
   Boot governor = userspace (1.066GHz); /etc/local.d/cpuspeed.start on the
   phone switches to performance after boot (booting AT >1.066 races udev
   module loading -> NULL deref oops at ~3.2s).
@@ -744,12 +745,71 @@ with the unsynced page cache.
   hciattach + udev rule, firmware names, chrony resync hook).
 
 --------------------------------------------------------------------------------
+19. BIG CLUSTER AT 2.3 GHz + TMU THERMAL (2026-10-07)
+--------------------------------------------------------------------------------
+- Added the 1807-2314 MHz big-cluster OPPs with ECT voltages (worst ASV bin of
+  table v1 + ~12.5 mV). Each step passed a 30 s hash-checked load test
+  (tools/soak.sh): the section 13 "hangs above 1.7 GHz" was the cluster swap.
+- But a 2-minute all-core soak at 2.3 GHz reset the phone after ~70 s, at
+  1137.5 and at 1162.5 mV alike. Reading the TMU by hand showed thermal runaway:
+  the die passed 150 C (sensor 0) with nothing throttling. Even the old
+  1703/1690 MHz default reached 94 C in 30 s and kept rising.
+- TMU access: 0x10080000 (CPU sensors 0-5; 0 = MNGS reference, 1 = little,
+  2-5 big hot spots) and 0x10084000 (GPU = sensor 0), IRQs SPI 451 / 452. The
+  register clock is gout_peris_busif_tmu_pclk (CMU_PERIS+0x2020, bit 21), which
+  clk_disable_unused gates: /dev/mem reads give a Bus error until it is on.
+  Trim: TRIMINFO + 4n per sensor, 25 C code in [8:0], 85 C code in [17:9],
+  two-point flag bit 23; vref/slope in TRIMINFO0/1 [22:18]/[21:18]. Current
+  codes at 0x40 (sensors 0-1) and 0x44/0x48 (three per word), 9 bits each.
+  Stock reports max(sensor0, sensorN - 20) ("balance" mode).
+- Driver: mainline exynos_tmu.c + SOC_ARCH_EXYNOS8895 (Exynos7 threshold,
+  interrupt and emulation layout for sensor 0; per-sensor trims; multi-sensor
+  read). Reference: exynos8895/android_kernel_samsung_universal8895
+  drivers/thermal/samsung/exynos_tmu.c (lineage-19.1).
+- Zones: cpu-thermal 83/88/93/98 C passive + 115 critical, cooling both cpufreq
+  policies. A single passive trip was not enough: step_wise only adds cooling
+  while the temperature is clearly rising, and a slow climb with +-1 C noise
+  isn't - the die sat at ~100 C. Each extra trip forces a minimum cooling
+  state. Result: 2.3 GHz big-only soak peak 92 / steady 86 C; all-core soak
+  under schedutil steady 88 C, zero hash errors.
+- Lesson: TMU emulation (thermal_zone/emul_temp) tests the throttling path
+  without heating the chip; the hardware trip (CONTROL bit 12) is still off.
+
+--------------------------------------------------------------------------------
+20. PLASMA AT 30 FPS - DECON FRAME-START IRQ (2026-10-07)
+--------------------------------------------------------------------------------
+Symptom: Plasma 20-28 fps, GPU fragment engine "busy" 150-660% while scrolling.
+Ruled out, one by one: CPU (kwin/plasmashell mostly <40% of a core), memory
+bandwidth (CPU memcpy ~15 GB/s - NB: reading CMU_MIF PLL registers at
+0x16x00100 hangs the bus), GPU clocks (G3D PLL 546 MHz), raw GPU speed
+(glmark2 1440x2960 500 fps off-screen, 745 fps on-screen), render target
+(a scanout dumb buffer from card0 renders as fast as Mesa's own: 3 full-screen
+blended layers in 3.2 ms), Plasma's blur effects and AFBC (PAN_MESA_DEBUG=
+noafbc) - none changed anything.
+Two real causes:
+1. KWin software brightness. With no panel brightness control KWin dims by
+   recolouring every pixel ("allowSdrSoftwareBrightness"); at 29 % that was
+   most of the GPU load. At 100 % KWin's GPU fragment time fell to ~9 %.
+2. The 30 fps cap. KWIN_LOG_PERFORMANCE_DATA=1 writes "kwin perf statistics
+   <output>.csv": KWin rendered in ~4 ms but every flip landed exactly two
+   refreshes after its target. A DECON trace (commit / frame start / frame
+   done / event + shadow-update state) showed only one IRQ per frame, at frame
+   done: the driver requested platform_get_irq(pdev, 1) = SPI 144 frame done
+   and never the frame-start line (SPI 143). The DSI transfer takes ~14.9 ms,
+   so frame done comes 1.8 ms before the next TE latch; KWin got the flip
+   event there, committed ~3 ms later - after the latch - and every frame
+   waited a refresh. Requesting both lines by name puts vblank and the flip
+   event at frame start: commit -> event 2.8 ms, 255/255 frames at 60 fps.
+Tools left on the phone: ~/bin/uiprof.sh (kwin/plasmashell CPU + panfrost
+fdinfo engine time, needs .../13900000.gpu/profiling=1), gpuproc.sh (GPU time
+per process), membw, fbtest (render-target speed).
+
+--------------------------------------------------------------------------------
 11. TODO / KNOWN REMAINING WORK
 --------------------------------------------------------------------------------
 [x] WiFi (done 2026-10-03, see section 10)
-[ ] Big-cluster (M2) frequency switching (PLL relock hangs; pinned to
-    1.066GHz, see section 13)
-[ ] Raise CPU OPP caps after M2 relock fix + stress testing (no voltage ctrl)
+[x] Big-cluster (M2) frequency switching + stock 2.314 GHz with TMU
+    thermal throttling (sections 13, 19)
 [ ] 5 GHz / WPA3 association (firmware/CLM? the 5GHz WPA3 AP scans at 89%
     but nmcli connect fails "network could not be found")
 [ ] Sustained-WiFi-RX instant reboot (section 14)

@@ -47,4 +47,8 @@ for s in g3d hciattach local; do
 	ln -sf "/etc/init.d/$s" "$MNT/etc/runlevels/default/$s"
 done
 
+# No USB gadget controller (the dwc3 work is not done; dummy_hcd is off), so
+# the USB network services have nothing to serve
+rm -f "$MNT/etc/runlevels/boot/unudhcpd.usb0" "$MNT/etc/runlevels/default/usb-signaller"
+
 echo "addons installed into $IMG"
