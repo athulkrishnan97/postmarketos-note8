@@ -4,7 +4,7 @@ maintainer="Jonas Heinrich <onny@project-insanity.org>"
 _flavor="postmarketos-exynos8895"
 pkgname=linux-$_flavor
 pkgver=7.0
-pkgrel=1
+pkgrel=2
 pkgdesc="Close-to-mainline kernel for Samsung Exynos 8895 devices"
 arch="aarch64"
 _carch="arm64"
@@ -54,6 +54,7 @@ source="
 	exynos8895-ufs.patch
 	greatlte-reserved-memory.patch
 	greatlte-grow-rootfs.patch
+	greatlte-no-fw-fallback.patch
 "
 
 
@@ -99,4 +100,5 @@ e07d2a02f3ba819309a11fb9ff6e98a1c6b6333a49e75bac056a0c1b06b9a1867762c2a6d7daf861
 d265afdd4b39131de392b79b2b91dd53d1fe615e809ff70486782e0e2d980f1f0736717658f535fe42c2e78e86125c9a2c81a4b0bb00c94b7a890324a49afc97  exynos8895-ufs.patch
 d8d04aef3f733941ddb21dd94185f19fe5ba17f847542bb594b949a52fb49953af93737691bd75c6b687c46cc948714faca80fbeb7d3286cb0d7fb017dec2406  greatlte-reserved-memory.patch
 ed9f25a252dd7087768903a6f60b935675d979f786685ba4615cfde129a74afc433607668a9dd9f7bebaac310c3511b5e87ec71f08ef20d4ac9fa89c514e26ef  greatlte-grow-rootfs.patch
+1a00e5e3e0de396d65288d32a6df6a62a3c46d912ab20296784f1e6f4dc37a53ab5d12e2db7d55da72d13f9208e3ed53a5a8529ecb2dfe92c6eb281013de676d  greatlte-no-fw-fallback.patch
 "

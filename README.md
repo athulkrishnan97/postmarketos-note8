@@ -67,7 +67,9 @@ aports/                 postmarketOS device packages (build these with pmbootstr
                                    greatlte-reserved-memory.patch (firmware RAM
                                    carveouts; the browser-freeze fix),
                                    greatlte-grow-rootfs.patch (grow the
-                                   microSD rootfs on first boot)
+                                   microSD rootfs on first boot),
+                                   greatlte-no-fw-fallback.patch (WiFi up in
+                                   ~6 s instead of ~2 min)
   device-samsung-greatlte/         device package (initramfs hooks, device info)
   uniloader-samsung-greatlte/      bootloader package
 uniloader-files/        our uniLoader board port (2 files; applied onto upstream uniLoader)
@@ -118,7 +120,9 @@ on first boot.
   (or TWRP). This only replaces `BOOT` and touches nothing else on internal storage.
 
 The boot image finds its partitions by the labels `pmOS_boot` / `pmOS_root`.
-Never have two cards or partitions with those labels at once.
+Never have two cards or partitions with those labels at once. **Without the card
+inserted the phone won't boot**: it shows uniLoader, then a black screen while
+the initramfs waits for the partitions.
 
 ## Build instructions
 

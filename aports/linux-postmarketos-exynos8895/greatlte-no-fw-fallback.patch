@@ -1,0 +1,27 @@
+From c347f03f5f77a35ffd790b063194bdede7261b36 Mon Sep 17 00:00:00 2001
+From: Athul <athulkrishnan97@users.noreply.github.com>
+Date: Wed, 7 Oct 2026 20:12:08 +0100
+Subject: [PATCH] greatlte: don't wait for the firmware sysfs fallback
+
+brcmfmac asks for an optional txcap_blob under two names; neither
+exists for the BCM4361, and with the legacy sysfs fallback enabled each
+request waits 60 s for a userspace helper that pmOS doesn't run. WiFi
+came up ~2 minutes after boot. Missing firmware now fails immediately
+(WiFi up at ~6 s).
+---
+ arch/arm64/boot/dts/exynos/exynos8895-greatlte.dts | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/arch/arm64/boot/dts/exynos/exynos8895-greatlte.dts b/arch/arm64/boot/dts/exynos/exynos8895-greatlte.dts
+index 28bc4851c..f6b1e0789 100644
+--- a/arch/arm64/boot/dts/exynos/exynos8895-greatlte.dts
++++ b/arch/arm64/boot/dts/exynos/exynos8895-greatlte.dts
+@@ -22,7 +22,7 @@ aliases {
+ 	};
+ 
+ 	chosen {
+-		bootargs = "pmos.force-partition-resize fbcon=font:TER16x32 loglevel=4 softlockup_panic=1 hung_task_panic=1 panic=5 cma=384M@0x80000000-0xbc000000";
++		bootargs = "pmos.force-partition-resize fbcon=font:TER16x32 loglevel=4 softlockup_panic=1 hung_task_panic=1 panic=5 cma=384M@0x80000000-0xbc000000 sysctl.kernel.firmware_config.ignore_sysfs_fallback=1";
+ 	};
+ 
+ 	memory@80000000 {

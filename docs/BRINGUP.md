@@ -731,6 +731,15 @@ with the unsynced page cache.
   on the cmdline (pmbootstrap usually puts it in its own boot.img; ours is
   uniLoader, so it lives in the dtb bootargs - greatlte-grow-rootfs.patch).
   With a UUID root on UFS (/dev/sda21) it is a no-op.
+- WiFi took ~2 min to come up on every boot: brcmfmac requests an optional
+  txcap_blob under two names, neither exists for the BCM4361, and the legacy
+  firmware sysfs fallback made each request wait 60 s for a userspace
+  helper pmOS doesn't run. `sysctl.kernel.firmware_config.ignore_sysfs_fallback=1`
+  in bootargs (greatlte-no-fw-fallback.patch): firmware loaded at 5.9 s,
+  SSH reachable at ~28 s uptime.
+- The label-based release boot.img with no microSD inserted (and no other
+  pmOS_boot/pmOS_root) hangs in the initramfs waiting for the partitions:
+  black screen after uniLoader, no WiFi. Not a kernel problem.
 - tools/install-rootfs-addons.sh does the rest (g3d, local.d cpuspeed,
   hciattach + udev rule, firmware names, chrony resync hook).
 
@@ -744,8 +753,8 @@ with the unsynced page cache.
 [ ] 5 GHz / WPA3 association (firmware/CLM? the 5GHz WPA3 AP scans at 89%
     but nmcli connect fails "network could not be found")
 [ ] Sustained-WiFi-RX instant reboot (section 14)
-[ ] ~2 min first-wifi-boot txcap fallback timeouts (provide real txcap or
-    patch brcmfmac to skip)
+[x] ~2 min WiFi delay: txcap_blob sysfs-fallback timeouts (2x 60 s) - fixed
+    with sysctl.kernel.firmware_config.ignore_sysfs_fallback=1 (section 18)
 [ ] OpenRC service (or local.d) to auto-run bt-pan-up.sh after boot
     (needs hciattach-from-boot to be finished first -- it already is; the
     boot log shows firmware flashed and hci0 present at login).
