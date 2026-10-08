@@ -1,0 +1,397 @@
+From 59c618398438bcedad223476e048b0c0af883778 Mon Sep 17 00:00:00 2001
+From: Athul <athulkrishnan97@users.noreply.github.com>
+Date: Thu, 8 Oct 2026 11:26:35 +0100
+Subject: [PATCH 1/2] power: supply: max17042: add MAX77865 fuel gauge;
+ greatlte: battery
+
+The MAX77865 (Galaxy Note 8 PMIC/charger/MUIC) has a ModelGauge m5 fuel
+gauge at I2C 0x36 with the MAX17047-style register set, like the MAX77705
+and MAX77849. Add a "maxim,max77865-battery" compatible to both the OF and
+I2C id tables (an OF-only entry gives -ENODEV on I2C, as the probe looks
+the chip type up by client name).
+
+Without a charger driver power_supply_am_i_supplied() fails and the
+status was always Unknown; with current sensing the gauge's average
+current tells charging from discharging, so use it.
+
+greatlte: describe the gauge on HSI2C_USI13_1 (10 mOhm sense). Only
+SALRT_Th is written at probe; the model is reloaded only after a POR.
+---
+ .../bindings/power/supply/maxim,max17042.yaml          |  1 +
+ arch/arm64/boot/dts/exynos/exynos8895-greatlte.dts     | 10 ++++++++++
+ drivers/power/supply/max17042_battery.c                |  9 ++++++++-
+ 3 files changed, 19 insertions(+), 1 deletion(-)
+
+diff --git a/Documentation/devicetree/bindings/power/supply/maxim,max17042.yaml b/Documentation/devicetree/bindings/power/supply/maxim,max17042.yaml
+index 14242de7f..19e335fd1 100644
+--- a/Documentation/devicetree/bindings/power/supply/maxim,max17042.yaml
++++ b/Documentation/devicetree/bindings/power/supply/maxim,max17042.yaml
+@@ -21,6 +21,7 @@ properties:
+       - maxim,max17055
+       - maxim,max77705-battery
+       - maxim,max77849-battery
++      - maxim,max77865-battery
+ 
+   reg:
+     maxItems: 1
+diff --git a/arch/arm64/boot/dts/exynos/exynos8895-greatlte.dts b/arch/arm64/boot/dts/exynos/exynos8895-greatlte.dts
+index e0d20518e..1d7aac4dd 100644
+--- a/arch/arm64/boot/dts/exynos/exynos8895-greatlte.dts
++++ b/arch/arm64/boot/dts/exynos/exynos8895-greatlte.dts
+@@ -423,4 +423,14 @@ muic@25 {
+ 		compatible = "maxim,max77865-muic";
+ 		reg = <0x25>;
+ 	};
++
++	/* MAX77865 fuel gauge (ModelGauge m5, MAX17047-style registers), 10 mOhm sense */
++	fuel-gauge@36 {
++		compatible = "maxim,max77865-battery";
++		reg = <0x36>;
++		maxim,rsns-microohm = <10000>;
++		maxim,over-heat-temp = <600>;
++		maxim,dead-volt = <3300>;
++		maxim,over-volt = <4500>;
++	};
+ };
+diff --git a/drivers/power/supply/max17042_battery.c b/drivers/power/supply/max17042_battery.c
+index acea17610..3c87ad2b7 100644
+--- a/drivers/power/supply/max17042_battery.c
++++ b/drivers/power/supply/max17042_battery.c
+@@ -116,8 +116,12 @@ static int max17042_get_status(struct max17042_chip *chip, int *status)
+ 	int avg_current;
+ 	u32 data;
+ 
++	/*
++	 * Without a supplier to ask (no charger driver), the gauge's own average
++	 * current still tells charging from discharging.
++	 */
+ 	ret = power_supply_am_i_supplied(chip->battery);
+-	if (ret < 0) {
++	if (ret < 0 && !chip->pdata->enable_current_sense) {
+ 		*status = POWER_SUPPLY_STATUS_UNKNOWN;
+ 		return 0;
+ 	}
+@@ -1238,6 +1242,8 @@ static const struct of_device_id max17042_dt_match[] __used = {
+ 		.data = (void *) MAXIM_DEVICE_TYPE_MAX17047 },
+ 	{ .compatible = "maxim,max77849-battery",
+ 		.data = (void *) MAXIM_DEVICE_TYPE_MAX17047 },
++	{ .compatible = "maxim,max77865-battery",
++		.data = (void *) MAXIM_DEVICE_TYPE_MAX17047 },
+ 	{ },
+ };
+ MODULE_DEVICE_TABLE(of, max17042_dt_match);
+@@ -1249,6 +1255,7 @@ static const struct i2c_device_id max17042_id[] = {
+ 	{ "max17050", MAXIM_DEVICE_TYPE_MAX17050 },
+ 	{ "max17055", MAXIM_DEVICE_TYPE_MAX17055 },
+ 	{ "max77849-battery", MAXIM_DEVICE_TYPE_MAX17047 },
++	{ "max77865-battery", MAXIM_DEVICE_TYPE_MAX17047 },
+ 	{ }
+ };
+ MODULE_DEVICE_TABLE(i2c, max17042_id);
+
+From df48377eb6805e34456da8eb696011d9697fee15 Mon Sep 17 00:00:00 2001
+From: Athul <athulkrishnan97@users.noreply.github.com>
+Date: Thu, 8 Oct 2026 11:40:35 +0100
+Subject: [PATCH 2/2] power: supply: add MAX77865 charger watchdog service;
+ greatlte: charger
+
+The bootloader leaves the MAX77865 charger running with its watchdog
+enabled (CNFG_00 WDTEN). Nothing serviced it, so ~80 s after it was last
+kicked the charger stopped (CHG_DTLS 0xb, "watchdog expired") and the
+battery was only held, or drained when the load exceeded the input limit.
+
+Like the vendor driver (battery_v2/max77865_charger.c), keep the watchdog
+on and kick it (CNFG_06 WDTCLR) from a 20 s work, and if it has expired
+anyway with an input present, re-arm charging by toggling the CHG mode
+bit. Current limits stay as the bootloader set them. Report the input
+(CHG_INT_OK CHGIN_OK) as a USB power supply, so the fuel gauge has a
+supplier.
+
+greatlte: add the charger at 0x69 as the battery's supplier.
+---
+ .../boot/dts/exynos/exynos8895-greatlte.dts   |   7 +
+ drivers/power/supply/Kconfig                  |   9 +
+ drivers/power/supply/Makefile                 |   1 +
+ drivers/power/supply/max77865_charger.c       | 220 ++++++++++++++++++
+ 4 files changed, 237 insertions(+)
+ create mode 100644 drivers/power/supply/max77865_charger.c
+
+diff --git a/arch/arm64/boot/dts/exynos/exynos8895-greatlte.dts b/arch/arm64/boot/dts/exynos/exynos8895-greatlte.dts
+index 1d7aac4dd..6a3bb50cb 100644
+--- a/arch/arm64/boot/dts/exynos/exynos8895-greatlte.dts
++++ b/arch/arm64/boot/dts/exynos/exynos8895-greatlte.dts
+@@ -428,9 +428,16 @@ muic@25 {
+ 	fuel-gauge@36 {
+ 		compatible = "maxim,max77865-battery";
+ 		reg = <0x36>;
++		power-supplies = <&charger>;
+ 		maxim,rsns-microohm = <10000>;
+ 		maxim,over-heat-temp = <600>;
+ 		maxim,dead-volt = <3300>;
+ 		maxim,over-volt = <4500>;
+ 	};
++
++	/* charger: services the watchdog the bootloader leaves enabled */
++	charger: charger@69 {
++		compatible = "maxim,max77865-charger";
++		reg = <0x69>;
++	};
+ };
+diff --git a/drivers/power/supply/Kconfig b/drivers/power/supply/Kconfig
+index 92f9f7aae..387b5f17d 100644
+--- a/drivers/power/supply/Kconfig
++++ b/drivers/power/supply/Kconfig
+@@ -631,6 +631,15 @@ config CHARGER_MAX77705
+ 	help
+ 	  Say Y to enable support for the Maxim MAX77705 battery charger.
+ 
++config CHARGER_MAX77865
++	tristate "Maxim MAX77865 charger watchdog service"
++	depends on I2C && OF
++	select REGMAP_I2C
++	help
++	  Keep the MAX77865 charger (Samsung Galaxy Note 8) charging: service
++	  the watchdog the bootloader leaves enabled and report whether a
++	  charger is connected.
++
+ config CHARGER_MAX77976
+ 	tristate "Maxim MAX77976 battery charger driver"
+ 	depends on I2C
+diff --git a/drivers/power/supply/Makefile b/drivers/power/supply/Makefile
+index 4b79d5abc..ead12a13c 100644
+--- a/drivers/power/supply/Makefile
++++ b/drivers/power/supply/Makefile
+@@ -86,6 +86,7 @@ obj-$(CONFIG_CHARGER_DETECTOR_MAX14656)	+= max14656_charger_detector.o
+ obj-$(CONFIG_CHARGER_MAX77650)	+= max77650-charger.o
+ obj-$(CONFIG_CHARGER_MAX77693)	+= max77693_charger.o
+ obj-$(CONFIG_CHARGER_MAX77705)	+= max77705_charger.o
++obj-$(CONFIG_CHARGER_MAX77865)	+= max77865_charger.o
+ obj-$(CONFIG_CHARGER_MAX77976)	+= max77976_charger.o
+ obj-$(CONFIG_CHARGER_MAX8971)	+= max8971_charger.o
+ obj-$(CONFIG_CHARGER_MAX8997)	+= max8997_charger.o
+diff --git a/drivers/power/supply/max77865_charger.c b/drivers/power/supply/max77865_charger.c
+new file mode 100644
+index 000000000..5962487a3
+--- /dev/null
++++ b/drivers/power/supply/max77865_charger.c
+@@ -0,0 +1,220 @@
++// SPDX-License-Identifier: GPL-2.0-only
++/*
++ * Maxim MAX77865 charger: watchdog service and input status
++ *
++ * The bootloader leaves the charger running with its watchdog enabled
++ * (CNFG_00 WDTEN). Unless WDTCLR is written regularly the charger turns
++ * itself off ~80 s later (CHG_DTLS = 0xb, "watchdog expired") and the
++ * battery is no longer charged. Like the vendor driver, keep the watchdog
++ * on, kick it from a periodic work, and if it has expired anyway re-arm
++ * charging by toggling the CHG mode bit. Input/charge current limits are
++ * left as the bootloader set them.
++ */
++
++#include <linux/bits.h>
++#include <linux/devm-helpers.h>
++#include <linux/i2c.h>
++#include <linux/module.h>
++#include <linux/of.h>
++#include <linux/power_supply.h>
++#include <linux/regmap.h>
++#include <linux/workqueue.h>
++
++#define MAX77865_CHG_INT_OK		0xb2
++#define MAX77865_CHGIN_OK		BIT(6)
++#define MAX77865_CHG_DETAILS_01		0xb4
++#define MAX77865_CHG_DTLS		GENMASK(3, 0)
++#define MAX77865_CHG_DTLS_DONE		0x4
++#define MAX77865_CHG_DTLS_OFF		0x8
++#define MAX77865_CHG_DTLS_WDT_EXPIRED	0xb
++#define MAX77865_CHG_CNFG_00		0xb7
++#define MAX77865_CHG_MODE_CHG		BIT(0)
++#define MAX77865_CHG_CNFG_06		0xbd
++#define MAX77865_CHGPROT_UNLOCK		GENMASK(3, 2)
++#define MAX77865_WDTCLR			BIT(0)
++
++/* the watchdog period is 80 s; the vendor driver kicks every 10-30 s */
++#define MAX77865_KICK_INTERVAL		(20 * HZ)
++
++struct max77865_charger {
++	struct device *dev;
++	struct regmap *regmap;
++	struct power_supply *psy;
++	struct delayed_work work;
++	bool online;
++};
++
++static int max77865_charger_kick(struct max77865_charger *chg)
++{
++	return regmap_update_bits(chg->regmap, MAX77865_CHG_CNFG_06,
++				  MAX77865_WDTCLR, MAX77865_WDTCLR);
++}
++
++static void max77865_charger_work(struct work_struct *work)
++{
++	struct max77865_charger *chg =
++		container_of(work, struct max77865_charger, work.work);
++	unsigned int ok, dtls, cnfg;
++	bool online;
++
++	if (max77865_charger_kick(chg))
++		goto out;
++
++	if (regmap_read(chg->regmap, MAX77865_CHG_INT_OK, &ok) ||
++	    regmap_read(chg->regmap, MAX77865_CHG_DETAILS_01, &dtls) ||
++	    regmap_read(chg->regmap, MAX77865_CHG_CNFG_00, &cnfg))
++		goto out;
++
++	online = ok & MAX77865_CHGIN_OK;
++	dtls &= MAX77865_CHG_DTLS;
++
++	if (online && (cnfg & MAX77865_CHG_MODE_CHG) &&
++	    dtls == MAX77865_CHG_DTLS_WDT_EXPIRED) {
++		dev_info(chg->dev, "watchdog had expired, re-enabling charging\n");
++		regmap_update_bits(chg->regmap, MAX77865_CHG_CNFG_00,
++				   MAX77865_CHG_MODE_CHG, 0);
++		regmap_update_bits(chg->regmap, MAX77865_CHG_CNFG_00,
++				   MAX77865_CHG_MODE_CHG, MAX77865_CHG_MODE_CHG);
++		max77865_charger_kick(chg);
++	}
++
++	if (online != chg->online) {
++		chg->online = online;
++		power_supply_changed(chg->psy);
++	}
++out:
++	schedule_delayed_work(&chg->work, MAX77865_KICK_INTERVAL);
++}
++
++static int max77865_charger_get_property(struct power_supply *psy,
++					 enum power_supply_property psp,
++					 union power_supply_propval *val)
++{
++	struct max77865_charger *chg = power_supply_get_drvdata(psy);
++	unsigned int reg;
++	int ret;
++
++	switch (psp) {
++	case POWER_SUPPLY_PROP_ONLINE:
++		ret = regmap_read(chg->regmap, MAX77865_CHG_INT_OK, &reg);
++		if (ret)
++			return ret;
++		val->intval = !!(reg & MAX77865_CHGIN_OK);
++		return 0;
++	case POWER_SUPPLY_PROP_STATUS:
++		ret = regmap_read(chg->regmap, MAX77865_CHG_DETAILS_01, &reg);
++		if (ret)
++			return ret;
++		reg &= MAX77865_CHG_DTLS;
++		if (reg < MAX77865_CHG_DTLS_DONE)
++			val->intval = POWER_SUPPLY_STATUS_CHARGING;
++		else if (reg == MAX77865_CHG_DTLS_DONE)
++			val->intval = POWER_SUPPLY_STATUS_FULL;
++		else
++			val->intval = POWER_SUPPLY_STATUS_NOT_CHARGING;
++		return 0;
++	default:
++		return -EINVAL;
++	}
++}
++
++static const enum power_supply_property max77865_charger_props[] = {
++	POWER_SUPPLY_PROP_ONLINE,
++	POWER_SUPPLY_PROP_STATUS,
++};
++
++static const struct power_supply_desc max77865_charger_desc = {
++	.name		= "max77865-charger",
++	.type		= POWER_SUPPLY_TYPE_USB,
++	.properties	= max77865_charger_props,
++	.num_properties	= ARRAY_SIZE(max77865_charger_props),
++	.get_property	= max77865_charger_get_property,
++};
++
++static const struct regmap_config max77865_charger_regmap_config = {
++	.reg_bits	= 8,
++	.val_bits	= 8,
++	.max_register	= 0xc6,
++};
++
++static int max77865_charger_probe(struct i2c_client *client)
++{
++	struct power_supply_config psy_cfg = {};
++	struct device *dev = &client->dev;
++	struct max77865_charger *chg;
++	int ret;
++
++	chg = devm_kzalloc(dev, sizeof(*chg), GFP_KERNEL);
++	if (!chg)
++		return -ENOMEM;
++
++	chg->dev = dev;
++	i2c_set_clientdata(client, chg);
++	chg->regmap = devm_regmap_init_i2c(client,
++					   &max77865_charger_regmap_config);
++	if (IS_ERR(chg->regmap))
++		return PTR_ERR(chg->regmap);
++
++	/* CNFG_01..07 are write-protected unless CHGPROT is 0b11 */
++	ret = regmap_update_bits(chg->regmap, MAX77865_CHG_CNFG_06,
++				 MAX77865_CHGPROT_UNLOCK,
++				 MAX77865_CHGPROT_UNLOCK);
++	if (ret)
++		return dev_err_probe(dev, ret, "charger not responding\n");
++
++	psy_cfg.drv_data = chg;
++	psy_cfg.fwnode = dev_fwnode(dev);
++	chg->psy = devm_power_supply_register(dev, &max77865_charger_desc,
++					      &psy_cfg);
++	if (IS_ERR(chg->psy))
++		return dev_err_probe(dev, PTR_ERR(chg->psy),
++				     "failed to register power supply\n");
++
++	ret = devm_delayed_work_autocancel(dev, &chg->work,
++					   max77865_charger_work);
++	if (ret)
++		return ret;
++
++	max77865_charger_work(&chg->work.work);
++	dev_info(dev, "watchdog serviced every %d s\n",
++		 MAX77865_KICK_INTERVAL / HZ);
++
++	return 0;
++}
++
++static int max77865_charger_resume(struct device *dev)
++{
++	struct max77865_charger *chg = dev_get_drvdata(dev);
++
++	mod_delayed_work(system_wq, &chg->work, 0);
++	return 0;
++}
++
++static DEFINE_SIMPLE_DEV_PM_OPS(max77865_charger_pm, NULL,
++				max77865_charger_resume);
++
++static const struct of_device_id max77865_charger_of_match[] = {
++	{ .compatible = "maxim,max77865-charger" },
++	{ }
++};
++MODULE_DEVICE_TABLE(of, max77865_charger_of_match);
++
++static const struct i2c_device_id max77865_charger_id[] = {
++	{ "max77865-charger" },
++	{ }
++};
++MODULE_DEVICE_TABLE(i2c, max77865_charger_id);
++
++static struct i2c_driver max77865_charger_driver = {
++	.driver = {
++		.name		= "max77865-charger",
++		.of_match_table	= max77865_charger_of_match,
++		.pm		= pm_sleep_ptr(&max77865_charger_pm),
++	},
++	.probe		= max77865_charger_probe,
++	.id_table	= max77865_charger_id,
++};
++module_i2c_driver(max77865_charger_driver);
++
++MODULE_DESCRIPTION("Maxim MAX77865 charger watchdog service");
++MODULE_LICENSE("GPL");

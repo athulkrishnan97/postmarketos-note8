@@ -41,6 +41,8 @@ the uniLoader board files, and the phone-side runtime addons.
 | USB | **Device mode, USB 2.0 high speed**: DWC3 + an 8895 variant of the mainline Exynos USB PHY driver. postmarketOS's USB network (CDC NCM) works, so `ssh user@172.16.42.1` over the cable (~30 MB/s). A small MAX77865 MUIC driver routes D+/D- to the SoC, so it also works with the cable attached at boot. |
 | SSH | over WiFi, USB (172.16.42.1) or the Bluetooth PAN link |
 | MTP | `usb-mode mtp` switches the USB gadget to MTP (`umtprd` via postmarketOS's usb-signaller): the phone's `/home` appears as "Home" in Dolphin/Files, ~14 MB/s each way. `usb-mode developer` switches back to USB networking (SSH); only one mode at a time. |
+| Battery level | MAX77865 fuel gauge via the mainline `max17042_battery` driver (new `maxim,max77865-battery` compatible): percentage, voltage, current, temperature, capacity and cycle count in Plasma/UPower. |
+| Charging | ~1 A from USB. A small MAX77865 charger driver services the charge watchdog the bootloader leaves on (otherwise charging stops ~3 min after boot) and reports the charger to Plasma. Current limits are the bootloader's. |
 | Internal storage | Toshiba THGAF4G9N4LBAIRA 64 GB **UFS 2.1**, mainline `ufs-exynos` with an 8895 variant: **HS-G3 rate B ×2 lanes, ~600 MB/s**. Root on `USERDATA` (sda21, 52.7 GB), `/boot` on `CACHE` (sda16). All 21 GPT partitions + boot/RPMB LUNs visible. |
 | microSD | Optional now; works at UHS SDR50 (heavy reads can still error, see below) |
 
@@ -78,7 +80,9 @@ aports/                 postmarketOS device packages (build these with pmbootstr
                                    exynos8895-cpu-2314.patch (big cluster to 2.3 GHz),
                                    greatlte-6gb-ram.patch (4th DRAM bank),
                                    exynos8895-usb.patch (USB device mode: PHY,
-                                   DWC3 glue, MAX77865 MUIC path, dts)
+                                   DWC3 glue, MAX77865 MUIC path, dts),
+                                   greatlte-battery.patch (MAX77865 fuel gauge
+                                   and charger watchdog driver)
   device-samsung-greatlte/         device package (initramfs hooks, device info)
   uniloader-samsung-greatlte/      bootloader package
 uniloader-files/        our uniLoader board port (2 files; applied onto upstream uniLoader)

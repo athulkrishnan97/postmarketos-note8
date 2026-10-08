@@ -846,6 +846,42 @@ up: Alpine's adbd is TCP-only and SSH over USB covers it.
 Not done: host mode (S2MM005 role detection + VBUS boost), USB 3 (PIPE3).
 
 --------------------------------------------------------------------------------
+22. BATTERY / FUEL GAUGE / CHARGER (2026-10-08)
+--------------------------------------------------------------------------------
+MAX77865 on HSI2C_USI13_1 (i2c-2): MUIC 0x25, fuel gauge 0x36, PMIC 0x66,
+charger 0x69.
+- Fuel gauge: ModelGauge m5, MAX17047-style registers (DevName 0x6100),
+  10 mOhm sense (DesignCap 0x1886 = 3139 mAh at 0.5 mAh/LSB). Mainline
+  max17042_battery + compatible "maxim,max77865-battery". Gotcha: the
+  existing "maxim,max77705-battery" entry is OF-only; the I2C probe looks
+  the chip type up by client name in the i2c_device_id table and returns
+  -ENODEV silently. Status falls back to AvgCurrent sign when there is no
+  supplier (no charger driver), else it is always Unknown.
+- Charger (0x69, regs 0xb0-0xc3, MAX77705-like): bootloader leaves
+  CNFG_00 = 0x15 (charger+buck on, WDTEN=1), CHGIN_ILIM ~500 mA, CHG_CC
+  ~450 mA. Nobody kicks the watchdog, so ~2-3 min after boot CHG_DTLS
+  (DETAILS_01 bits 3:0) = 0xB "off, watchdog expired": the battery idles
+  (or drains if load > input limit). Right after boot it charges at ~1 A.
+  Clearing WDTEN by hand (0x15 -> 0x05) brought charging straight back
+  (CHG_DTLS 0x1, fast charge, ~1 A into the battery), confirming it.
+  Fix: drivers/power/supply/max77865_charger.c keeps WDTEN on and kicks
+  WDTCLR every 20 s (vendor: every 10-30 s from get_charging_health); if
+  it finds CHG_DTLS 0xb with an input present it toggles CNFG_00 CHG off/on
+  as the vendor does. Registers a USB power supply (CHGIN_OK) that the fuel
+  gauge uses as its supplier. Not done: input/charge current control, the
+  charger IRQ, USB-PD/AFC fast charging.
+  Measured (v144, wall charger, MUIC CHGTYP 3 = DCP): bootloader limits
+  CNFG_02 0x1e (CC 1.5 A, 50 mA/step) and CNFG_09 0x3c (CHGIN 1.5 A,
+  25 mA/step); ~+1.05 A into the battery with the phone idle (SoC ~50 C).
+  While busy (Plasma start-up, SoC ~76 C) the load can exceed it and the
+  battery dips even though CHG_DTLS says fast charge. After a watchdog
+  expiry the limits fall back to POR defaults (0x09 = 450 mA, 0x14 =
+  500 mA). On a laptop port the source itself is the limit.
+- USB side note: the PHY forces VBUSVALID, so DWC3 never sees an unplug
+  (UDC stays "configured" on a wall charger). Harmless; needs VBUS/CC
+  detection (MUIC or S2MM005) to fix.
+
+--------------------------------------------------------------------------------
 11. TODO / KNOWN REMAINING WORK
 --------------------------------------------------------------------------------
 [x] WiFi (done 2026-10-03, see section 10)
