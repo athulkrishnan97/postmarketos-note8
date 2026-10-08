@@ -1,5 +1,11 @@
 # postmarketOS on the Samsung Galaxy Note 8 (greatlte / SM-N950F)
 
+<p align="center">
+  <img src="docs/screenshots/home.png" alt="Plasma Mobile home screen on the Note 8" width="300">
+  &nbsp;&nbsp;
+  <img src="docs/screenshots/system-info.png" alt="System Information: Plasma 6.7.5, kernel 7.0.0, 5.5 GiB of RAM" width="300">
+</p>
+
 Mainline Linux (7.0) running on the Exynos 8895 Samsung Galaxy Note 8,
 with a fully open-source boot chain, a **native display driver** (DECON + DSI +
 DSC for the S6E3HA6 AMOLED panel), a GPU-composited desktop on the Mali-G71
