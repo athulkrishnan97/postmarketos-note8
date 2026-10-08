@@ -47,6 +47,13 @@ install -m 644 "$ADDONS/firmware/bcm4361B0_murata.hcd" "$ADDONS/firmware/bcm4361
 # greatlte module is the semco one
 install -D -m 644 "$ADDONS/firmware/bcm4361B0_semco.hcd" "$MNT/etc/firmware/BCM4347B0.hcd"
 
+# Audio: ABOX Calliope firmware (from the stock N950F vendor image) and the
+# ALSA UCM profile (earpiece / headphones) PulseAudio uses for the card
+install -m 644 "$ADDONS/firmware/calliope_sram.bin" "$ADDONS/firmware/calliope_dram.bin" \
+	"$ADDONS/firmware/calliope_iva.bin" "$MNT/lib/firmware/"
+mkdir -p "$MNT/usr/share/alsa/ucm2"
+cp -a "$ADDONS/usr-share-alsa-ucm2/." "$MNT/usr/share/alsa/ucm2/"
+
 for s in g3d hciattach local; do
 	ln -sf "/etc/init.d/$s" "$MNT/etc/runlevels/default/$s"
 done

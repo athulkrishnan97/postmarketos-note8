@@ -962,3 +962,41 @@ not 4375 -> brcmfmac 4361 additions (rambase 0x170000 from downstream,
 fw table, pci id 0x441f) -> unassigned BAR0 (chip decode written by
 brcmfmac + iATU alias) -> end-to-end auto-connect at boot.
 ================================================================================
+
+## Audio: ABOX + CS47L93 (kernel 7.0-r8)
+
+The Note 8's audio path is Exynos8895 **ABOX** (DMAs, mixers and I2S ports run
+by Samsung's *Calliope* firmware on a Cortex-A7 inside the block) feeding a
+Cirrus Logic **CS47L93** codec on SPI3. Mainline had neither the ABOX driver nor
+the codec's supplies. What it took:
+
+- **Codec power:** DCVDD is S2MPS17 **LDO33** (1.2 V, off at boot); with it off
+  the codec reads ID 0xffff. LDO32/LDO33 added to `s2mps11`. The SPI bus needs
+  `samsung,spi-feedback-delay = <1>` or every read is shifted by a bit.
+- **Codec clock:** MCLK1 is the 26 MHz TCXO on **PMU CLKOUT0** (6-bit mux;
+  bit 0 is a *disable* bit). MCLK2 carries nothing, so the madera 32 kHz clock
+  must come from SYSCLK, otherwise the volume ramps turn audio into noise.
+- **Calliope boot:** firmware `calliope_{sram,dram,iva}.bin` from the stock
+  vendor image. Lessons: the downstream `SMC_CMD_REG` secure call hangs; write
+  the ABOX GIC directly (the AP's accesses count as secure). `exynos-iommu` only
+  translates while the master is runtime-PM active; otherwise the SysMMU stays in
+  bypass and the A7 scribbles on physical RAM. Reading chip ID 0x10000000 faults,
+  so the firmware gets a fake ID page. Unmapped IOVAs cause an interrupt storm,
+  so faults are backed with a dummy page. The firmware's CPU gear requests
+  (`ABOX_CHANGE_GEAR`) must be answered or it never starts recording.
+- **Streaming:** RDMA0 -> SPUS mixer -> SIFS0 -> UAIF0. The SPUS mixer must be
+  **flushed** before each stream or it free-runs (~3x speed). The DMA position
+  comes from the RDMA/WDMA status register (offset in 16-byte units, 13 bits, so
+  buffers are capped at 64 KiB); the firmware sends no pointer IPC.
+- **The noise bug:** `UAIF_CTRL0` bit 2 **set** means the UAIF *drives*
+  BCLK/LRCLK, the opposite of what the downstream code suggests. With it
+  inverted, both the codec and ABOX drove the clocks and each stream started at a
+  random bit offset: harsh, different-every-time distortion. Found with the codec
+  AEC loopback at -9 dB as an alignment detector (at 0 dB the round trip masked
+  it).
+- **Userspace:** ALSA UCM (`rootfs-addons/usr-share-alsa-ucm2`) gives PulseAudio
+  an Earpiece (default) and a Headphones port. The earpiece distorts above about
+  -6 dB, so the machine driver caps that control there.
+
+Not done: the bottom loudspeaker (MAX98506 amp on its own UAIF, i2c bus 0 at
+0x31), microphones (MICBIAS), jack detection.

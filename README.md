@@ -49,6 +49,7 @@ the uniLoader board files, and the phone-side runtime addons.
 | MTP | `usb-mode mtp` switches the USB gadget to MTP (`umtprd` via postmarketOS's usb-signaller): the phone's `/home` appears as "Home" in Dolphin/Files, ~14 MB/s each way. `usb-mode developer` switches back to USB networking (SSH); only one mode at a time. |
 | Battery level | MAX77865 fuel gauge via the mainline `max17042_battery` driver (new `maxim,max77865-battery` compatible): percentage, voltage, current, temperature, capacity and cycle count in Plasma/UPower. |
 | Charging | ~1 A from USB. A small MAX77865 charger driver services the charge watchdog the bootloader leaves on (otherwise charging stops ~3 min after boot) and reports the charger to Plasma. Current limits are the bootloader's. |
+| Audio | **Earpiece** (top receiver) for media and system sound through PulseAudio/Plasma, volume keys included. A new mainline **ABOX** driver boots Samsung's Calliope firmware on the audio subsystem's Cortex-A7 and streams over UAIF0 to the **CS47L93** codec (madera driver, I2S provider, FLL from the 26 MHz PMU clock output). Capture path works (loopback-verified). ALSA UCM profile in `rootfs-addons/`; earpiece volume capped at −6 dB where it starts to distort. Headphone jack routed but untested (no jack detection yet). |
 | Screen off | The power button turns the panel off (display off + sleep in) and back on. Tap-to-wake is KWin's `DoubleTapWakeup` (`~/.config/kwinrc`, `[Wayland]`); set it to `false` to wake only with the power button. |
 | Internal storage | Toshiba THGAF4G9N4LBAIRA 64 GB **UFS 2.1**, mainline `ufs-exynos` with an 8895 variant: **HS-G3 rate B ×2 lanes, ~600 MB/s**. Root on `USERDATA` (sda21, 52.7 GB), `/boot` on `CACHE` (sda16). All 21 GPT partitions + boot/RPMB LUNs visible. |
 | microSD | Optional now; works at UHS SDR50 (heavy reads can still error, see below) |
@@ -63,6 +64,7 @@ the uniLoader board files, and the phone-side runtime addons.
 | 5 GHz / WPA3 WiFi | The 2.4 GHz WPA2 SSID connects; the 5 GHz WPA3 one scans but won't associate. | Investigate firmware/CLM/regulatory. |
 | Sustained full-speed WiFi RX | >5–10 min of heavy download instantly reboots the phone (no panic log). Suspect brcmfmac. | Trickled transfers work around it; needs a proper bug hunt. |
 | USB host mode / USB 3 | Peripheral only, high speed. Host mode (OTG) needs Type-C role detection (S2MM005) and VBUS output; USB 3 needs the PIPE3 side of the PHY. | S2MM005 / role switch; PIPE3 init from the vendor CAL. |
+| Loudspeaker, microphones, jack detection | The bottom speaker sits behind a MAX98506 amplifier on its own I2S port (no driver yet); the mics need MICBIAS routing; no jack/button detection. Calls need the modem. | MAX98506 driver on ABOX UAIF/speaker bus; UCM capture devices. |
 | S Pen (wacom w90xx) / hw keys | No mainline driver. | Port the downstream wacom_i2c-style driver. |
 
 ## Repository layout
@@ -90,7 +92,10 @@ aports/                 postmarketOS device packages (build these with pmbootstr
                                    DWC3 glue, MAX77865 MUIC path, dts),
                                    greatlte-battery.patch (MAX77865 fuel gauge
                                    and charger watchdog driver),
-                                   greatlte-panel-off.patch (panel off on DPMS)
+                                   greatlte-panel-off.patch (panel off on DPMS),
+                                   exynos8895-audio.patch (ABOX audio driver +
+                                   Calliope firmware boot, CS47L93 codec supplies,
+                                   PMU clock output, sound card, dts)
   device-samsung-greatlte/         device package (initramfs hooks, device info)
   uniloader-samsung-greatlte/      bootloader package
 uniloader-files/        our uniLoader board port (2 files; applied onto upstream uniLoader)
@@ -105,7 +110,9 @@ rootfs-addons/          files to install into the phone rootfs
   etc-NetworkManager-dispatcher.d/  resyncs the clock once WiFi is up (no RTC)
   etc-local.d/cpuspeed.start        switches both clusters to schedutil after boot
   usr-local-bin/bt-pan-up.sh        one-command BT-PAN network to a laptop
-  firmware/                         BCM4361 wifi firmware + board NVRAM + BT .hcd
+  firmware/                         BCM4361 wifi firmware + board NVRAM + BT .hcd,
+                                    ABOX Calliope audio firmware (calliope_*.bin)
+  usr-share-alsa-ucm2/              ALSA UCM profile (earpiece / headphones)
 tools/                  install-rootfs-addons.sh (put rootfs-addons into a pmbootstrap image),
                         soak.sh (hash-checked per-CPU load test for clocks/thermals),
                         ect_parse.py (dump the bootloader's ECT voltage/PLL tables),
