@@ -27,6 +27,10 @@ install -D -m 644 "$ADDONS/etc-udev-rules.d/10-hciattach.rules" \
 install -D -m 755 "$ADDONS/etc-NetworkManager-dispatcher.d/50-chrony-resync" \
 	"$MNT/etc/NetworkManager/dispatcher.d/50-chrony-resync"
 
+# Discover's app catalogues (Alpine AppStream + Flathub) on first connection
+install -D -m 755 "$ADDONS/etc-NetworkManager-dispatcher.d/60-appstream" \
+	"$MNT/etc/NetworkManager/dispatcher.d/60-appstream"
+
 install -D -m 755 "$ADDONS/usr-local-bin/bt-pan-up.sh" "$MNT/usr/local/bin/bt-pan-up.sh"
 
 # BCM4361 WiFi (brcmfmac looks for both the generic and the board name)

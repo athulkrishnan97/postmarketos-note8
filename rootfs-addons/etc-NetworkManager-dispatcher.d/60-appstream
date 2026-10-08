@@ -1,0 +1,17 @@
+#!/bin/sh
+# Discover lists nothing until the app catalogues exist: Alpine's AppStream
+# data (alpine-appstream-downloader -> /var/lib/swcatalog) and Flathub's.
+# Fetch them in the background once a connection is up, if missing or older
+# than a week. Runs after 50-chrony-resync, so the clock is usually right.
+case "$2" in up|connectivity-change) ;; *) exit 0 ;; esac
+
+STAMP=/var/lib/swcatalog/.updated
+[ -f "$STAMP" ] && [ -z "$(find "$STAMP" -mtime +7)" ] && exit 0
+
+(
+	exec 9>/run/appstream-update.lock
+	flock -n 9 || exit 0
+	sleep 20
+	alpine-appstream-downloader && touch "$STAMP"
+	flatpak update --appstream --system --noninteractive
+) >/dev/null 2>&1 &

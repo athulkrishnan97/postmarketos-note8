@@ -94,6 +94,7 @@ rootfs-addons/          files to install into the phone rootfs
   etc-umtprd/umtprd.conf            MTP: /home as "Home", files owned by uid 10000
   usr-local-bin/usb-mode            switch USB mode (developer / mtp / tethering / charging)
   etc-xdg-plasma-workspace-env/     Qt glyph cache workaround (testing, see BRINGUP 23)
+  etc-NetworkManager-dispatcher.d/60-appstream  fetch Discover's catalogues (Alpine + Flathub) once online
   etc-udev-rules.d/                 starts/stops hciattach on rfkill
   etc-NetworkManager-dispatcher.d/  resyncs the clock once WiFi is up (no RTC)
   etc-local.d/cpuspeed.start        switches both clusters to schedutil after boot
@@ -210,7 +211,7 @@ OpenRC, so install the `console` UI and add Plasma Mobile as a package. Its
 pmbootstrap config ui console
 pmbootstrap config service_manager openrc
 pmbootstrap install --password <pin> \
-    --add postmarketos-ui-plasma-mobile,polkit-elogind,bluez-deprecated,firefox,umtprd,umtprd-openrc
+    --add postmarketos-ui-plasma-mobile,polkit-elogind,bluez-deprecated,firefox,umtprd,umtprd-openrc,alpine-appstream-downloader
 #   polkit-elogind:   the default polkit build has no elogind support, so the
 #                     Plasma session is never "active" and NetworkManager
 #                     refuses WiFi changes ("not authorized to control networking")
