@@ -51,4 +51,8 @@ done
 install -D -m 644 "$ADDONS/etc-umtprd/umtprd.conf" "$MNT/etc/umtprd/umtprd.conf"
 install -D -m 755 "$ADDONS/usr-local-bin/usb-mode" "$MNT/usr/local/bin/usb-mode"
 
+# Qt glyph cache workaround (under test: letters missing in Plasma labels)
+install -D -m 644 "$ADDONS/etc-xdg-plasma-workspace-env/glyphcache-workaround.sh" \
+	"$MNT/etc/xdg/plasma-workspace/env/glyphcache-workaround.sh"
+
 echo "addons installed into $IMG"

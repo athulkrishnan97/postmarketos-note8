@@ -882,6 +882,40 @@ charger 0x69.
   detection (MUIC or S2MM005) to fix.
 
 --------------------------------------------------------------------------------
+23. SCREEN OFF, MISSING LETTERS, KERNEL LOG (2026-10-08)
+--------------------------------------------------------------------------------
+Screen off: the power button made KWin turn the CRTC off (debugfs state
+active=0, DPMS Off), but the panel driver had no unprepare, so the
+command-mode DDI kept showing its GRAM: frozen last frame, touch ignored.
+Fix: unprepare sends display off + sleep in, prepare sleeps out on return.
+Gotcha: on the S6E3HA6 even the standard DCS 0x28/0x10/0x11 are only
+taken behind the level 1 key (0x9f 0xa5 0xa5, as downstream display-off-
+seq/exit-seq); without it they are ACKed by the DSIM but ignored by the
+DDI. DRM calls the panel post_disable BEFORE the CRTC disable, so the
+commands go out while the DECON still triggers frames - that is fine.
+Touch wakes the screen via KWin's DoubleTapWakeup ([Wayland] in kwinrc).
+
+Missing letters ("i-Fi", "Mobi e Data", "B uetooth", stray glyphs), on
+some boots, until the session restarts:
+- tools/scanout.c (raw DRM GETFB2 + PRIME mmap, root) dumps the buffer
+  the DECON is scanning: the letters are missing IN the rendered frame, so
+  the display path is not involved; background intact = glyphs not drawn,
+  not a memory scribble.
+- memtester 3 GB (42% in the 0x900000000 bank): 12 tests passed (stopped
+  at Bit Spread). All firmware no-map regions of the vendor rmem are
+  reserved (camera ION pool at 0x880000000 is not firmware).
+- GPU: Mali-G71 r0p0 (05dev0); vendor kbase lists 13 errata for it, the
+  kernel side of which panfrost covers; the rest are userspace (Mesa).
+  Vendor runs it non-coherent too.
+- Under test: QML_USE_GLYPHCACHE_WORKAROUND / QT_ENABLE_GLYPH_CACHE_
+  WORKAROUND (rootfs-addons, /etc/xdg/plasma-workspace/env): Qt keeps a CPU
+  copy of the glyph atlas instead of growing it with a GPU copy.
+Kernel log: CONFIG_DEBUG_DRIVER was on (OPP + driver core -DDEBUG, ~10
+lines/s) and pushed everything out of dmesg within minutes. Off now.
+panfrost.transparent_hugepage=0 was only on the phone's local dtb (a
+leftover from section 17, where it changed nothing); removed.
+
+--------------------------------------------------------------------------------
 11. TODO / KNOWN REMAINING WORK
 --------------------------------------------------------------------------------
 [x] WiFi (done 2026-10-03, see section 10)

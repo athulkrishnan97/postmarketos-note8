@@ -1,0 +1,90 @@
+From 9b7d5e042bdc1a2003c257b7603387400d7144c2 Mon Sep 17 00:00:00 2001
+From: Athul <athulkrishnan97@users.noreply.github.com>
+Date: Thu, 8 Oct 2026 13:08:51 +0100
+Subject: [PATCH] drm/panel: s6e3ha6: turn the panel off on disable
+
+The driver had no unprepare, so on DPMS off the DECON stopped but the
+command-mode DDI kept showing its frame memory: the screen froze on the
+last frame instead of going dark.
+
+Add unprepare (bridge post_disable): display off, sleep in, 120 ms, and a
+sleep-out in prepare when coming back. As for display on, the DDI only
+takes these behind the level 1 key (0x9f 0xa5 0xa5; downstream
+display-off-seq / exit-seq) - without it they are silently ignored. The
+rails stay on, so the DSC/DSU/TE setup survives.
+---
+ drivers/gpu/drm/panel/panel-samsung-s6e3ha6.c | 42 +++++++++++++++++++
+ 1 file changed, 42 insertions(+)
+
+diff --git a/drivers/gpu/drm/panel/panel-samsung-s6e3ha6.c b/drivers/gpu/drm/panel/panel-samsung-s6e3ha6.c
+index d4c96a7ab..024bed4ff 100644
+--- a/drivers/gpu/drm/panel/panel-samsung-s6e3ha6.c
++++ b/drivers/gpu/drm/panel/panel-samsung-s6e3ha6.c
+@@ -29,6 +29,7 @@ struct s6e3ha6 {
+ 	struct gpio_desc *reset_gpio;
+ 	struct regulator_bulk_data *supplies;
+ 	bool initialized;
++	bool asleep;
+ };
+ 
+ static inline struct s6e3ha6 *to_s6e3ha6(struct drm_panel *panel)
+@@ -211,11 +212,51 @@ static int s6e3ha6_prepare(struct drm_panel *panel)
+ 	}
+ 
+ 	priv->dsi->mode_flags |= MIPI_DSI_MODE_LPM;
++
++	/* back from unprepare(): the DDI kept its settings while asleep */
++	if (priv->asleep) {
++		s6e3ha6_key1_on(&ctx);
++		mipi_dsi_dcs_exit_sleep_mode_multi(&ctx);
++		s6e3ha6_key1_off(&ctx);
++		mipi_dsi_msleep(&ctx, 120);
++		if (ctx.accum_err)
++			return ctx.accum_err;
++		priv->asleep = false;
++	}
++
+ 	mipi_dsi_dcs_set_display_on_multi(&ctx);
+ 
+ 	return ctx.accum_err;
+ }
+ 
++/*
++ * Display off and sleep in (bridge post_disable), so the command-mode DDI
++ * stops showing its frame memory.  Like display on, these are only taken
++ * behind the level 1 key (downstream display-off-seq and exit-seq).  The
++ * rails stay on, so the
++ * DSC/DSU/TE setup survives and prepare() only needs a sleep-out.
++ */
++static int s6e3ha6_unprepare(struct drm_panel *panel)
++{
++	struct s6e3ha6 *priv = to_s6e3ha6(panel);
++	struct mipi_dsi_multi_context ctx = { .dsi = priv->dsi };
++
++	priv->dsi->mode_flags |= MIPI_DSI_MODE_LPM;
++
++	s6e3ha6_key1_on(&ctx);
++	mipi_dsi_dcs_set_display_off_multi(&ctx);
++	mipi_dsi_msleep(&ctx, 17);
++	mipi_dsi_dcs_enter_sleep_mode_multi(&ctx);
++	s6e3ha6_key1_off(&ctx);
++	mipi_dsi_msleep(&ctx, 120);
++	if (ctx.accum_err)
++		dev_warn(&priv->dsi->dev, "display off / sleep in failed: %d\n",
++			 ctx.accum_err);
++
++	priv->asleep = true;
++	return 0;
++}
++
+ static int s6e3ha6_enable(struct drm_panel *panel)
+ {
+ 	struct s6e3ha6 *priv = to_s6e3ha6(panel);
+@@ -253,6 +294,7 @@ static int s6e3ha6_get_modes(struct drm_panel *panel,
+ static const struct drm_panel_funcs s6e3ha6_panel_funcs = {
+ 	.prepare = s6e3ha6_prepare,
+ 	.enable = s6e3ha6_enable,
++	.unprepare = s6e3ha6_unprepare,
+ 	.get_modes = s6e3ha6_get_modes,
+ };
+ 

@@ -4,7 +4,7 @@ maintainer="Jonas Heinrich <onny@project-insanity.org>"
 _flavor="postmarketos-exynos8895"
 pkgname=linux-$_flavor
 pkgver=7.0
-pkgrel=6
+pkgrel=7
 pkgdesc="Close-to-mainline kernel for Samsung Exynos 8895 devices"
 arch="aarch64"
 _carch="arm64"
@@ -61,6 +61,7 @@ source="
 	greatlte-6gb-ram.patch
 	exynos8895-usb.patch
 	greatlte-battery.patch
+	greatlte-panel-off.patch
 "
 
 
@@ -99,7 +100,7 @@ package() {
 
 sha512sums="
 f4fa939671330d0da614aa5dd1e3c1dafabaec0a3a0e46c3ea56cf29a37f6c7f86f2ad9c85c351d2d30188ae731e7bb93820c3a4e8a168e89956e0c9a3ae98f5  linux-postmarketos-exynos8895-028ef9c96e96197026887c0f092424679298aae8.tar.gz
-04afe2eff6265d4d5dff4210b529dd403faed91ef3d8ae1aec68bf711fe0511784995fc3e507d8db92bbd4eecaf3f912031d08f9a1671b00f6a4f1a9635dcbb0  config-postmarketos-exynos8895.aarch64
+32e2e054d8b4b23b4a995eae7e9e9454b484d206b28786c5516f4b8570b0cd5477a9208b77542b2da11b4544f9bdb514eecef6efe0de1dd548e125851b80a934  config-postmarketos-exynos8895.aarch64
 1d16783b778876f8b62240985d462098ed4b6dbe8d5ebe913ee5863dc683a7350a95d643ebaeeb774f5db1a0527bb65d21200e8ac8502b120dfabd9ac69f13f7  greatlte-dts.patch
 3007a75f9fc0652de4d0947efa124bb1871ce94da509734051050d8c42ae6e485aefa8166f6cf988d805797c93fffc2fe2e3c7b3a4ff0cddcb97792cc1603ea6  exynos8895-pcie-wifi.patch
 728e410c1607f41e0bc95744ae3172fc3fa8836e8fb2a667ac04056ec8822b5cb055b9798636e143ff703eeb7922ede5d70d0e609b058dc807c940a48af758b0  exynos8895-display.patch
@@ -113,4 +114,5 @@ bb403ed23757df46e4d65ad5980e14dec7367d42579948b6c2d14b7bdc7202c59894741fe86a61d3
 1564428cff732b106fd515c68b9575133216668450bcda7e0fcf31e6059180501c2b81e1919d578469c1d89e2b965c4c7f4d640d92078059a9cde1218f0f1f69  greatlte-6gb-ram.patch
 3bc79b03bad9e622ff6cd7938a74f5df589bf9fa0f834fb67ea3a55c641e27d37a4b0e2b271983763137682fe921e2d00b84a9e4d7aff5906c66643ad4959235  exynos8895-usb.patch
 3a5bbff1c3b8dd761db4017b358723621ea296640c6a0b0e884cf0567f56acf87cf555c5cad588e923ec7f4ca7f4077f514ac2937fc532414e3c6e1f588697b8  greatlte-battery.patch
+a5120b72be8afefa336723466b24bc34039cb539208b6f759f9a9b1e463f213e9b130050d1c82d241cc710cdf67658d914c7fe3bbf60c1a6dfbc45d73f7943ec  greatlte-panel-off.patch
 "

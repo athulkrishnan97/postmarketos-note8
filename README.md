@@ -43,6 +43,7 @@ the uniLoader board files, and the phone-side runtime addons.
 | MTP | `usb-mode mtp` switches the USB gadget to MTP (`umtprd` via postmarketOS's usb-signaller): the phone's `/home` appears as "Home" in Dolphin/Files, ~14 MB/s each way. `usb-mode developer` switches back to USB networking (SSH); only one mode at a time. |
 | Battery level | MAX77865 fuel gauge via the mainline `max17042_battery` driver (new `maxim,max77865-battery` compatible): percentage, voltage, current, temperature, capacity and cycle count in Plasma/UPower. |
 | Charging | ~1 A from USB. A small MAX77865 charger driver services the charge watchdog the bootloader leaves on (otherwise charging stops ~3 min after boot) and reports the charger to Plasma. Current limits are the bootloader's. |
+| Screen off | The power button turns the panel off (display off + sleep in) and back on. Tap-to-wake is KWin's `DoubleTapWakeup` (`~/.config/kwinrc`, `[Wayland]`); set it to `false` to wake only with the power button. |
 | Internal storage | Toshiba THGAF4G9N4LBAIRA 64 GB **UFS 2.1**, mainline `ufs-exynos` with an 8895 variant: **HS-G3 rate B ×2 lanes, ~600 MB/s**. Root on `USERDATA` (sda21, 52.7 GB), `/boot` on `CACHE` (sda16). All 21 GPT partitions + boot/RPMB LUNs visible. |
 | microSD | Optional now; works at UHS SDR50 (heavy reads can still error, see below) |
 
@@ -82,7 +83,8 @@ aports/                 postmarketOS device packages (build these with pmbootstr
                                    exynos8895-usb.patch (USB device mode: PHY,
                                    DWC3 glue, MAX77865 MUIC path, dts),
                                    greatlte-battery.patch (MAX77865 fuel gauge
-                                   and charger watchdog driver)
+                                   and charger watchdog driver),
+                                   greatlte-panel-off.patch (panel off on DPMS)
   device-samsung-greatlte/         device package (initramfs hooks, device info)
   uniloader-samsung-greatlte/      bootloader package
 uniloader-files/        our uniLoader board port (2 files; applied onto upstream uniLoader)
@@ -91,6 +93,7 @@ rootfs-addons/          files to install into the phone rootfs
   etc-init.d/hciattach              Bluetooth UART attach (BCM4361, 3 Mbaud)
   etc-umtprd/umtprd.conf            MTP: /home as "Home", files owned by uid 10000
   usr-local-bin/usb-mode            switch USB mode (developer / mtp / tethering / charging)
+  etc-xdg-plasma-workspace-env/     Qt glyph cache workaround (testing, see BRINGUP 23)
   etc-udev-rules.d/                 starts/stops hciattach on rfkill
   etc-NetworkManager-dispatcher.d/  resyncs the clock once WiFi is up (no RTC)
   etc-local.d/cpuspeed.start        switches both clusters to schedutil after boot
