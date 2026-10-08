@@ -47,4 +47,8 @@ for s in g3d hciattach local; do
 	ln -sf "/etc/init.d/$s" "$MNT/etc/runlevels/default/$s"
 done
 
+# MTP (usb-mode mtp): files created as the phone user, not root
+install -D -m 644 "$ADDONS/etc-umtprd/umtprd.conf" "$MNT/etc/umtprd/umtprd.conf"
+install -D -m 755 "$ADDONS/usr-local-bin/usb-mode" "$MNT/usr/local/bin/usb-mode"
+
 echo "addons installed into $IMG"

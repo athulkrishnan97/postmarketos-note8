@@ -1,0 +1,28 @@
+#!/bin/sh
+# usb-mode: show or switch the USB gadget mode through usb-signaller.
+#   usb-mode              current mode and the available ones
+#   usb-mode mtp          MTP file transfer (umtprd, shares /home)
+#   usb-mode developer    USB networking: SSH at 172.16.42.1 (boot default)
+#   usb-mode tethering    share the phone's connection over USB
+#   usb-mode charging     no data
+DEST="--system --print-reply=literal --dest=com.meego.usb_moded /com/meego/usb_moded"
+
+call() {
+	# shellcheck disable=SC2086
+	dbus-send $DEST com.meego.usb_moded."$@" | tr -d ' \n'
+}
+
+case "$1" in
+	"")
+		echo "current:   $(call mode_request)"
+		echo "available: $(call get_modes)"
+		exit 0 ;;
+	mtp)		mode=mtp_ffs_mode ;;
+	developer)	mode=developer_mode ;;
+	tethering)	mode=tethering_mode ;;
+	charging)	mode=charging_only ;;
+	*)		mode="$1" ;;
+esac
+
+call set_mode string:"$mode" >/dev/null || exit 1
+echo "USB mode: $(call mode_request)"

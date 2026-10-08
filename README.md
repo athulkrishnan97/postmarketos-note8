@@ -40,6 +40,7 @@ the uniLoader board files, and the phone-side runtime addons.
 | Web browsers | Firefox and Angelfish (the start-up hard freeze was Linux using firmware-owned RAM — fixed by reserving the stock carveouts, see docs/BRINGUP.md §17) |
 | USB | **Device mode, USB 2.0 high speed**: DWC3 + an 8895 variant of the mainline Exynos USB PHY driver. postmarketOS's USB network (CDC NCM) works, so `ssh user@172.16.42.1` over the cable (~30 MB/s). A small MAX77865 MUIC driver routes D+/D- to the SoC, so it also works with the cable attached at boot. |
 | SSH | over WiFi, USB (172.16.42.1) or the Bluetooth PAN link |
+| MTP | `usb-mode mtp` switches the USB gadget to MTP (`umtprd` via postmarketOS's usb-signaller): the phone's `/home` appears as "Home" in Dolphin/Files, ~14 MB/s each way. `usb-mode developer` switches back to USB networking (SSH); only one mode at a time. |
 | Internal storage | Toshiba THGAF4G9N4LBAIRA 64 GB **UFS 2.1**, mainline `ufs-exynos` with an 8895 variant: **HS-G3 rate B ×2 lanes, ~600 MB/s**. Root on `USERDATA` (sda21, 52.7 GB), `/boot` on `CACHE` (sda16). All 21 GPT partitions + boot/RPMB LUNs visible. |
 | microSD | Optional now; works at UHS SDR50 (heavy reads can still error, see below) |
 
@@ -84,6 +85,8 @@ uniloader-files/        our uniLoader board port (2 files; applied onto upstream
 rootfs-addons/          files to install into the phone rootfs
   etc-init.d/g3d                    brings panfrost up before the display manager
   etc-init.d/hciattach              Bluetooth UART attach (BCM4361, 3 Mbaud)
+  etc-umtprd/umtprd.conf            MTP: /home as "Home", files owned by uid 10000
+  usr-local-bin/usb-mode            switch USB mode (developer / mtp / tethering / charging)
   etc-udev-rules.d/                 starts/stops hciattach on rfkill
   etc-NetworkManager-dispatcher.d/  resyncs the clock once WiFi is up (no RTC)
   etc-local.d/cpuspeed.start        switches both clusters to schedutil after boot
@@ -200,7 +203,7 @@ OpenRC, so install the `console` UI and add Plasma Mobile as a package. Its
 pmbootstrap config ui console
 pmbootstrap config service_manager openrc
 pmbootstrap install --password <pin> \
-    --add postmarketos-ui-plasma-mobile,polkit-elogind,bluez-deprecated,firefox
+    --add postmarketos-ui-plasma-mobile,polkit-elogind,bluez-deprecated,firefox,umtprd,umtprd-openrc
 #   polkit-elogind:   the default polkit build has no elogind support, so the
 #                     Plasma session is never "active" and NetworkManager
 #                     refuses WiFi changes ("not authorized to control networking")

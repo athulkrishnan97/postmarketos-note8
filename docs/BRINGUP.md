@@ -839,8 +839,11 @@ unudhcpd give the standard 172.16.42.1 network and SSH over the cable
   can win the route; `ip route add 172.16.42.1/32 dev enx...` or remove it.
 - Don't unbind/rebind exynos-dwc3 at runtime: it crashed the kernel, and the
   next reboot hung in the USB shutdown path (forced restart needed).
-Not done: host mode (S2MM005 role detection + VBUS boost), USB 3 (PIPE3),
-ADB/MTP (would sit on the same gadget framework).
+MTP: postmarketOS's usb-signaller mtp_ffs_mode (ffs.mtp + umtprd) works as
+is; `usb-mode mtp|developer` (rootfs-addons) switches. umtprd.conf sets
+default_uid/gid 10000, else copied files are root-owned 0600. ADB not set
+up: Alpine's adbd is TCP-only and SSH over USB covers it.
+Not done: host mode (S2MM005 role detection + VBUS boost), USB 3 (PIPE3).
 
 --------------------------------------------------------------------------------
 11. TODO / KNOWN REMAINING WORK
