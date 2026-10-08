@@ -38,7 +38,8 @@ the uniLoader board files, and the phone-side runtime addons.
 | Bluetooth | BCM4347B0 UART, works (incl. a BT-PAN IP link to a laptop) |
 | GUI | KDE Plasma Mobile (tinydm autologin), GPU-composited, **60 fps** (vblank/flip events at DECON frame start); output scale 3 |
 | Web browsers | Firefox and Angelfish (the start-up hard freeze was Linux using firmware-owned RAM — fixed by reserving the stock carveouts, see docs/BRINGUP.md §17) |
-| SSH | over WiFi or the Bluetooth PAN link |
+| USB | **Device mode, USB 2.0 high speed**: DWC3 + an 8895 variant of the mainline Exynos USB PHY driver. postmarketOS's USB network (CDC NCM) works, so `ssh user@172.16.42.1` over the cable (~30 MB/s). A small MAX77865 MUIC driver routes D+/D- to the SoC, so it also works with the cable attached at boot. |
+| SSH | over WiFi, USB (172.16.42.1) or the Bluetooth PAN link |
 | Internal storage | Toshiba THGAF4G9N4LBAIRA 64 GB **UFS 2.1**, mainline `ufs-exynos` with an 8895 variant: **HS-G3 rate B ×2 lanes, ~600 MB/s**. Root on `USERDATA` (sda21, 52.7 GB), `/boot` on `CACHE` (sda16). All 21 GPT partitions + boot/RPMB LUNs visible. |
 | microSD | Optional now; works at UHS SDR50 (heavy reads can still error, see below) |
 
@@ -51,7 +52,7 @@ the uniLoader board files, and the phone-side runtime addons.
 | Boot console on the panel | Enabling fbdev emulation (fbcon) crashes early boot; the screen stays black until Plasma starts. | Debug the fbdev path against the DECON driver. |
 | 5 GHz / WPA3 WiFi | The 2.4 GHz WPA2 SSID connects; the 5 GHz WPA3 one scans but won't associate. | Investigate firmware/CLM/regulatory. |
 | Sustained full-speed WiFi RX | >5–10 min of heavy download instantly reboots the phone (no panic log). Suspect brcmfmac. | Trickled transfers work around it; needs a proper bug hunt. |
-| USB to a PC | No USB device controller yet (`dummy_hcd` is disabled: its virtual loopback only produced a fake `usb0`/`usb1` Ethernet pair). | Port the dwc3 + USB-C role-switch setup. |
+| USB host mode / USB 3 | Peripheral only, high speed. Host mode (OTG) needs Type-C role detection (S2MM005) and VBUS output; USB 3 needs the PIPE3 side of the PHY. | S2MM005 / role switch; PIPE3 init from the vendor CAL. |
 | S Pen (wacom w90xx) / hw keys | No mainline driver. | Port the downstream wacom_i2c-style driver. |
 
 ## Repository layout
@@ -74,7 +75,9 @@ aports/                 postmarketOS device packages (build these with pmbootstr
                                    vblank/flip at frame start),
                                    exynos8895-thermal.patch (TMU + thermal zones),
                                    exynos8895-cpu-2314.patch (big cluster to 2.3 GHz),
-                                   greatlte-6gb-ram.patch (4th DRAM bank)
+                                   greatlte-6gb-ram.patch (4th DRAM bank),
+                                   exynos8895-usb.patch (USB device mode: PHY,
+                                   DWC3 glue, MAX77865 MUIC path, dts)
   device-samsung-greatlte/         device package (initramfs hooks, device info)
   uniloader-samsung-greatlte/      bootloader package
 uniloader-files/        our uniLoader board port (2 files; applied onto upstream uniLoader)

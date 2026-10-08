@@ -805,6 +805,44 @@ fdinfo engine time, needs .../13900000.gpu/profiling=1), gpuproc.sh (GPU time
 per process), membw, fbtest (render-target speed).
 
 --------------------------------------------------------------------------------
+21. USB DEVICE MODE (2026-10-08)
+--------------------------------------------------------------------------------
+Result: USB 2.0 high-speed peripheral; postmarketOS's configfs NCM gadget +
+unudhcpd give the standard 172.16.42.1 network and SSH over the cable
+(~32 MB/s laptop->phone, ~15 MB/s phone->laptop through ssh).
+- Controller: Synopsys DWC3 2.80a (GSNPSID 0x5533280a) at 0x10c00000, IRQ SPI
+  337, glue "samsung,exynos8895-dwusb3".
+- PHY: "KC" USB 3.0 DRD PHY, vendor CAL version 01_1_1
+  (exynos8895/android_kernel_samsung_universal8895, drivers/phy/
+  phy-exynos-usbdrd.c + phy-samsung-usb3-cal.c). Exynos5 register layout,
+  but: a version word at +0 (0x10000) shifts all registers by 4; two port
+  blocks (0x10e00000, 0x10e10000); PMU 0x704 bit 0 de-isolates; reference
+  clock select bit 24 at 0x10e5007c; Q-channel workaround (PHYRESUME bits +
+  LINKSYSTEM soft reset); REFCLKSEL = clock core, FSEL from the 26 MHz ref;
+  no VBUS pad -> VBUSVALID/BVALID forced. New variant in phy-exynos5-usbdrd.c.
+- Gotcha 1 - registers read 0: gout_fsys0_usbtv_i_usbtvh_xiu_clk (the USBTV
+  XIU) carries all register access to the DRD block and PHY. Nothing claimed
+  it, so clk_disable_unused gated it right after probe: every DWC3/PHY read
+  returned 0 and the controller was cut off. The glue now holds it (plus
+  USBTV AHB, LHM_AXI_D_USBTV, US_D_FSYS0_USB).
+- Gotcha 2 - the legacy CONFIG_USB_ETH (g_ether) grabbed the UDC before the
+  initramfs configfs gadget ("couldn't find an available UDC") and its
+  RNDIS link timed out on the host. Disabled.
+- Gotcha 3 - cable attached at boot: the MAX77865 MUIC (I2C 0x25 on
+  HSI2C_USI13_1, 0x10970000) leaves its D+/D- switch OPEN (CONTROL1 0x19 =
+  0x00) when a cable is present at power-on; a re-plug made its own
+  detection close it. drivers/usb/misc/max77865-muic.c writes 0x89
+  (D+/D- -> USB AP, BC comparator off) at probe. Plug orientation turned out
+  to be a red herring (gpi1-7, the Type-C orientation input, only matters
+  for the USB 3 lanes).
+- Laptop side: a static 172.16.42.2/24 on another interface (enp3s0 here)
+  can win the route; `ip route add 172.16.42.1/32 dev enx...` or remove it.
+- Don't unbind/rebind exynos-dwc3 at runtime: it crashed the kernel, and the
+  next reboot hung in the USB shutdown path (forced restart needed).
+Not done: host mode (S2MM005 role detection + VBUS boost), USB 3 (PIPE3),
+ADB/MTP (would sit on the same gadget framework).
+
+--------------------------------------------------------------------------------
 11. TODO / KNOWN REMAINING WORK
 --------------------------------------------------------------------------------
 [x] WiFi (done 2026-10-03, see section 10)
@@ -818,8 +856,7 @@ per process), membw, fbtest (render-target speed).
 [ ] OpenRC service (or local.d) to auto-run bt-pan-up.sh after boot
     (needs hciattach-from-boot to be finished first -- it already is; the
     boot log shows firmware flashed and hci0 present at login).
-[ ] USB: dwc3 + PHY driver work; usb0 gadget already appears (enx... on PC;
-    pmOS runs udhcpd on usb0).
+[x] USB device mode (section 21). [ ] host mode / USB 3.
 [ ] GPU/display: simpledrm only (llvmpipe); panfrost/Mesa for Mali-G71
     (needs G3D power domain/clocks - CMU_G3D not modeled yet either).
 [x] UFS internal storage driver (2026-10-06, section 16).

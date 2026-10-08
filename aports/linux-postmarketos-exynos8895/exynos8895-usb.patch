@@ -1,0 +1,539 @@
+From 689daffcd0910f145a55bbc34f1f145a6e891b1e Mon Sep 17 00:00:00 2001
+From: Athul <athulkrishnan97@users.noreply.github.com>
+Date: Thu, 8 Oct 2026 10:44:02 +0100
+Subject: [PATCH 1/4] phy: exynos5-usbdrd: add Exynos 8895 support
+
+The 8895 "KC" USB 3.0 DRD PHY has the classic Exynos5 register layout but
+two port blocks 64 KiB apart (one per Type-C orientation), a version word
+in front of the registers, a Q-channel workaround and no VBUS pad. Port
+the vendor CAL sequence (samsung_exynos_cal_usb3phy_enable, version
+01_1_1) for port 0: PMU de-isolation (0x704), reference clock from the
+clock core (select bit at +0x5007c), Q-channel/link reset, PHYCLKRST with
+FSEL from the 26 MHz reference, port 1 parked, UTMI awake with VBUS
+forced and OTG disabled. USB 2.0 only for now.
+---
+ drivers/phy/samsung/phy-exynos5-usbdrd.c | 212 +++++++++++++++++++++++
+ 1 file changed, 212 insertions(+)
+
+diff --git a/drivers/phy/samsung/phy-exynos5-usbdrd.c b/drivers/phy/samsung/phy-exynos5-usbdrd.c
+index 5a181cb45..bd455cbdc 100644
+--- a/drivers/phy/samsung/phy-exynos5-usbdrd.c
++++ b/drivers/phy/samsung/phy-exynos5-usbdrd.c
+@@ -1689,6 +1689,198 @@ static const struct phy_ops exynos850_usbdrd_phy_ops = {
+ 	.owner		= THIS_MODULE,
+ };
+ 
++/*
++ * Exynos8895: the "KC" USB 3.0 DRD PHY (vendor CAL version 01_1_1). It has the
++ * classic Exynos5 register layout, but two port blocks (one per Type-C plug
++ * orientation, 64 KiB apart, port 0 carrying USB 2.0), an optional version
++ * word in front of the registers, a Q-channel workaround and no VBUS pad.
++ * The sequence follows samsung_exynos_cal_usb3phy_enable() for port 0.
++ */
++#define EXYNOS8895_PORT1_OFFSET			0x10000
++#define EXYNOS8895_REFCLK_REG			0x5007c
++#define EXYNOS8895_REFCLK_SEL			BIT(24)
++#define EXYNOS8895_PHYPIPE_PHY_CLOCK_SEL	BIT(4)
++#define EXYNOS8895_PHYRESUME_DIS_LINKGATE_QACT	BIT(13)
++#define EXYNOS8895_PHYRESUME_DIS_ID0_QACT	BIT(12)
++#define EXYNOS8895_PHYRESUME_DIS_VBUSVALID_QACT	BIT(11)
++#define EXYNOS8895_PHYRESUME_DIS_BVALID_QACT	BIT(10)
++#define EXYNOS8895_PHYRESUME_FORCE_QACT		BIT(9)
++#define EXYNOS8895_LINKSYSTEM_LINK_SW_RESET	BIT(28)
++#define EXYNOS8895_PHYCLKRST_FSEL		GENMASK(10, 5)
++#define EXYNOS8895_REFCLKSEL_CLKCORE		0x2
++#define EXYNOS8895_DRD_PHYSELECTION		0x6c
++#define EXYNOS8895_PHYSEL_PIPE_CLK		BIT(3)
++#define EXYNOS8895_PHYSEL_PIPE			BIT(1)
++
++/* Registers start after a non-zero version word, as in the vendor CAL */
++static void __iomem *exynos8895_port_base(void __iomem *base)
++{
++	return readl(base) ? base + 4 : base;
++}
++
++static void exynos8895_usbdrd_q_ch(void __iomem *regs)
++{
++	u32 reg;
++
++	reg = readl(regs + EXYNOS5_DRD_PHYRESUME);
++	reg |= EXYNOS8895_PHYRESUME_DIS_ID0_QACT |
++	       EXYNOS8895_PHYRESUME_DIS_VBUSVALID_QACT |
++	       EXYNOS8895_PHYRESUME_DIS_BVALID_QACT |
++	       EXYNOS8895_PHYRESUME_DIS_LINKGATE_QACT;
++	reg &= ~EXYNOS8895_PHYRESUME_FORCE_QACT;
++	udelay(500);
++	writel(reg, regs + EXYNOS5_DRD_PHYRESUME);
++	udelay(500);
++	reg = readl(regs + EXYNOS5_DRD_PHYRESUME);
++	reg |= EXYNOS8895_PHYRESUME_FORCE_QACT;
++	udelay(500);
++	writel(reg, regs + EXYNOS5_DRD_PHYRESUME);
++
++	reg = readl(regs + EXYNOS5_DRD_LINKSYSTEM);
++	writel(reg | EXYNOS8895_LINKSYSTEM_LINK_SW_RESET,
++	       regs + EXYNOS5_DRD_LINKSYSTEM);
++	udelay(10);
++	writel(reg & ~EXYNOS8895_LINKSYSTEM_LINK_SW_RESET,
++	       regs + EXYNOS5_DRD_LINKSYSTEM);
++}
++
++static int exynos8895_usbdrd_phy_init(struct phy *phy)
++{
++	struct phy_usb_instance *inst = phy_get_drvdata(phy);
++	struct exynos5_usbdrd_phy *phy_drd = to_usbdrd_phy(inst);
++	void __iomem *regs, *regs2;
++	u32 reg, clkrst;
++	int ret;
++
++	ret = clk_bulk_prepare_enable(phy_drd->drv_data->n_clks, phy_drd->clks);
++	if (ret)
++		return ret;
++
++	/* PHY out of isolation before it is programmed */
++	inst->phy_cfg->phy_isol(inst, false);
++
++	/* reference clock from the clock core */
++	reg = readl(phy_drd->reg_phy + EXYNOS8895_REFCLK_REG);
++	writel(reg | EXYNOS8895_REFCLK_SEL,
++	       phy_drd->reg_phy + EXYNOS8895_REFCLK_REG);
++
++	regs = exynos8895_port_base(phy_drd->reg_phy);
++	regs2 = exynos8895_port_base(phy_drd->reg_phy + EXYNOS8895_PORT1_OFFSET);
++
++	exynos8895_usbdrd_q_ch(regs);
++
++	/* PHY mux: port 0 */
++	reg = readl(regs + EXYNOS8895_DRD_PHYSELECTION);
++	reg &= ~(EXYNOS8895_PHYSEL_PIPE | EXYNOS8895_PHYSEL_PIPE_CLK);
++	writel(reg, regs + EXYNOS8895_DRD_PHYSELECTION);
++
++	clkrst = readl(regs + EXYNOS5_DRD_PHYCLKRST);
++	clkrst |= PHYCLKRST_PORTRESET;
++	clkrst &= ~PHYCLKRST_REFCLKSEL;
++	clkrst |= FIELD_PREP(PHYCLKRST_REFCLKSEL, EXYNOS8895_REFCLKSEL_CLKCORE);
++	clkrst &= ~EXYNOS8895_PHYCLKRST_FSEL;
++	clkrst |= FIELD_PREP(EXYNOS8895_PHYCLKRST_FSEL, phy_drd->extrefclk);
++
++	/* common block on in suspend (CAL >= 01_0_1: COMMONONN clear) */
++	clkrst &= ~PHYCLKRST_COMMONONN;
++	clkrst &= ~PHYCLKRST_EN_UTMISUSPEND;
++	clkrst |= PHYCLKRST_RETENABLEN | PHYCLKRST_REF_SSP_EN;
++	clkrst |= PHYCLKRST_SSC_EN;
++	clkrst &= ~PHYCLKRST_SSC_RANGE;
++
++	reg = readl(regs + EXYNOS5_DRD_PHYPARAM0);
++	writel(reg & ~PHYPARAM0_REF_USE_PAD, regs + EXYNOS5_DRD_PHYPARAM0);
++
++	reg = readl(regs + EXYNOS5_DRD_PHYPIPE);
++	writel(reg | EXYNOS8895_PHYPIPE_PHY_CLOCK_SEL, regs + EXYNOS5_DRD_PHYPIPE);
++
++	writel(clkrst, regs + EXYNOS5_DRD_PHYCLKRST);
++	udelay(10);
++	clkrst &= ~PHYCLKRST_PORTRESET;
++	writel(clkrst, regs + EXYNOS5_DRD_PHYCLKRST);
++
++	/* power up both ports, then park port 1 */
++	reg = readl(regs + EXYNOS5_DRD_PHYTEST);
++	reg &= ~(PHYTEST_POWERDOWN_HSP | PHYTEST_POWERDOWN_SSP);
++	writel(reg, regs + EXYNOS5_DRD_PHYTEST);
++	reg = readl(regs2 + EXYNOS5_DRD_PHYTEST);
++	reg &= ~(PHYTEST_POWERDOWN_HSP | PHYTEST_POWERDOWN_SSP);
++	writel(reg, regs2 + EXYNOS5_DRD_PHYTEST);
++	udelay(1000);
++	writel(reg | PHYTEST_POWERDOWN_HSP | PHYTEST_POWERDOWN_SSP,
++	       regs2 + EXYNOS5_DRD_PHYTEST);
++	reg = readl(regs2 + EXYNOS5_DRD_PHYUTMI);
++	writel(reg | PHYUTMI_FORCESLEEP | PHYUTMI_FORCESUSPEND,
++	       regs2 + EXYNOS5_DRD_PHYUTMI);
++	udelay(500);
++
++	/* UTMI: awake, no pull-downs, VBUS valid forced (no VBUS pad), no OTG */
++	reg = readl(regs + EXYNOS5_DRD_PHYUTMI);
++	reg &= ~(PHYUTMI_FORCESLEEP | PHYUTMI_FORCESUSPEND |
++		 PHYUTMI_DMPULLDOWN | PHYUTMI_DPPULLDOWN | PHYUTMI_DRVVBUS);
++	reg |= PHYUTMI_VBUSVLDEXTSEL | PHYUTMI_VBUSVLDEXT | PHYUTMI_OTGDISABLE;
++	writel(reg, regs + EXYNOS5_DRD_PHYUTMI);
++
++	reg = readl(regs + EXYNOS5_DRD_LINKSYSTEM);
++	reg |= LINKSYSTEM_FORCE_BVALID | LINKSYSTEM_FORCE_VBUSVALID;
++	writel(reg, regs + EXYNOS5_DRD_LINKSYSTEM);
++
++	reg = readl(regs + EXYNOS5_DRD_LINKPORT);
++	reg |= LINKPORT_HOST_PORT_OVCR_U3_SEL | LINKPORT_HOST_PORT_OVCR_U2_SEL;
++	reg &= ~LINKPORT_HOST_U3_PORT_DISABLE;
++	writel(reg, regs + EXYNOS5_DRD_LINKPORT);
++
++	dev_info(phy_drd->dev, "exynos8895 usbdrd phy up (version 0x%x)\n",
++		 readl(phy_drd->reg_phy));
++	return 0;
++}
++
++static int exynos8895_usbdrd_phy_exit(struct phy *phy)
++{
++	struct phy_usb_instance *inst = phy_get_drvdata(phy);
++	struct exynos5_usbdrd_phy *phy_drd = to_usbdrd_phy(inst);
++	void __iomem *regs = exynos8895_port_base(phy_drd->reg_phy);
++	u32 reg;
++
++	reg = readl(regs + EXYNOS5_DRD_PHYUTMI);
++	writel(reg | PHYUTMI_FORCESLEEP | PHYUTMI_FORCESUSPEND,
++	       regs + EXYNOS5_DRD_PHYUTMI);
++	reg = readl(regs + EXYNOS5_DRD_PHYTEST);
++	writel(reg | PHYTEST_POWERDOWN_HSP | PHYTEST_POWERDOWN_SSP,
++	       regs + EXYNOS5_DRD_PHYTEST);
++
++	inst->phy_cfg->phy_isol(inst, true);
++	clk_bulk_disable_unprepare(phy_drd->drv_data->n_clks, phy_drd->clks);
++	return 0;
++}
++
++static int exynos8895_usbdrd_phy_power_on(struct phy *phy)
++{
++	struct phy_usb_instance *inst = phy_get_drvdata(phy);
++	struct exynos5_usbdrd_phy *phy_drd = to_usbdrd_phy(inst);
++
++	return clk_bulk_prepare_enable(phy_drd->drv_data->n_core_clks,
++				       phy_drd->core_clks);
++}
++
++static int exynos8895_usbdrd_phy_power_off(struct phy *phy)
++{
++	struct phy_usb_instance *inst = phy_get_drvdata(phy);
++	struct exynos5_usbdrd_phy *phy_drd = to_usbdrd_phy(inst);
++
++	clk_bulk_disable_unprepare(phy_drd->drv_data->n_core_clks,
++				   phy_drd->core_clks);
++	return 0;
++}
++
++static const struct phy_ops exynos8895_usbdrd_phy_ops = {
++	.init		= exynos8895_usbdrd_phy_init,
++	.exit		= exynos8895_usbdrd_phy_exit,
++	.power_on	= exynos8895_usbdrd_phy_power_on,
++	.power_off	= exynos8895_usbdrd_phy_power_off,
++	.owner		= THIS_MODULE,
++};
++
+ static void exynos5_usbdrd_gs101_pipe3_init(struct exynos5_usbdrd_phy *phy_drd)
+ {
+ 	void __iomem *regs_pma = phy_drd->reg_pma;
+@@ -2066,6 +2258,23 @@ static const struct exynos5_usbdrd_phy_drvdata exynos7870_usbdrd_phy = {
+ 	.n_regulators		= ARRAY_SIZE(exynos5_regulator_names),
+ };
+ 
++static const struct exynos5_usbdrd_phy_config phy_cfg_exynos8895[] = {
++	{
++		.id		= EXYNOS5_DRDPHY_UTMI,
++		.phy_isol	= exynos5_usbdrd_phy_isol,
++	},
++};
++
++static const struct exynos5_usbdrd_phy_drvdata exynos8895_usbdrd_phy = {
++	.phy_cfg		= phy_cfg_exynos8895,
++	.phy_ops		= &exynos8895_usbdrd_phy_ops,
++	.pmu_offset_usbdrd0_phy	= EXYNOS5_USBDRD_PHY_CONTROL,
++	.clk_names		= exynos5_clk_names,
++	.n_clks			= ARRAY_SIZE(exynos5_clk_names),
++	.core_clk_names		= exynos5_core_clk_names,
++	.n_core_clks		= ARRAY_SIZE(exynos5_core_clk_names),
++};
++
+ static const struct exynos5_usbdrd_phy_drvdata exynos850_usbdrd_phy = {
+ 	.phy_cfg		= phy_cfg_exynos850,
+ 	.phy_ops		= &exynos850_usbdrd_phy_ops,
+@@ -2899,6 +3108,9 @@ static const struct of_device_id exynos5_usbdrd_phy_of_match[] = {
+ 	}, {
+ 		.compatible = "samsung,exynos850-usbdrd-phy",
+ 		.data = &exynos850_usbdrd_phy
++	}, {
++		.compatible = "samsung,exynos8895-usbdrd-phy",
++		.data = &exynos8895_usbdrd_phy
+ 	}, {
+ 		.compatible = "samsung,exynos990-usbdrd-phy",
+ 		.data = &exynos990_usbdrd_phy
+
+From be2c80c5eab37c0160ca92ee7331f6a8cb60449a Mon Sep 17 00:00:00 2001
+From: Athul <athulkrishnan97@users.noreply.github.com>
+Date: Thu, 8 Oct 2026 10:44:02 +0100
+Subject: [PATCH 2/4] usb: dwc3: exynos: add Exynos 8895 support
+
+Besides the link clocks the 8895 needs its FSYS0 bus path held: the USBTV
+XIU carries every register access to the DRD controller and its PHY. Left
+to clk_disable_unused it is gated right after probe, after which all
+registers read as zero and nothing reaches the cable. Raise
+DWC3_EXYNOS_MAX_CLOCKS to 7 for the list.
+---
+ drivers/usb/dwc3/dwc3-exynos.c | 17 ++++++++++++++++-
+ 1 file changed, 16 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/usb/dwc3/dwc3-exynos.c b/drivers/usb/dwc3/dwc3-exynos.c
+index e934f94e8..67f0bf888 100644
+--- a/drivers/usb/dwc3/dwc3-exynos.c
++++ b/drivers/usb/dwc3/dwc3-exynos.c
+@@ -17,7 +17,7 @@
+ #include <linux/of_platform.h>
+ #include <linux/regulator/consumer.h>
+ 
+-#define DWC3_EXYNOS_MAX_CLOCKS	4
++#define DWC3_EXYNOS_MAX_CLOCKS	7
+ 
+ struct dwc3_exynos_driverdata {
+ 	const char		*clk_names[DWC3_EXYNOS_MAX_CLOCKS];
+@@ -175,6 +175,18 @@ static const struct dwc3_exynos_driverdata exynos7870_drvdata = {
+ 	.suspend_clk_idx = -1,
+ };
+ 
++static const struct dwc3_exynos_driverdata exynos8895_drvdata = {
++	/*
++	 * Link clocks, then the bus path that is otherwise gated as unused:
++	 * the USBTV XIU carries every register access to the DRD controller
++	 * and its PHY - without it they read as zero.
++	 */
++	.clk_names = { "aclk", "susp_clk", "ref", "bus_lhm", "bus_us",
++		       "usbtv_xiu", "usbtv_ahb" },
++	.num_clks = 7,
++	.suspend_clk_idx = 1,
++};
++
+ static const struct dwc3_exynos_driverdata exynos850_drvdata = {
+ 	.clk_names = { "bus_early", "ref" },
+ 	.num_clks = 2,
+@@ -212,6 +224,9 @@ static const struct of_device_id exynos_dwc3_match[] = {
+ 	}, {
+ 		.compatible = "samsung,exynos850-dwusb3",
+ 		.data = &exynos850_drvdata,
++	}, {
++		.compatible = "samsung,exynos8895-dwusb3",
++		.data = &exynos8895_drvdata,
+ 	}, {
+ 		.compatible = "samsung,exynosautov920-dwusb3",
+ 		.data = &exynosautov920_drvdata,
+
+From 14415eb3d98b25733167345646c38de1bb62b6ac Mon Sep 17 00:00:00 2001
+From: Athul <athulkrishnan97@users.noreply.github.com>
+Date: Thu, 8 Oct 2026 10:44:03 +0100
+Subject: [PATCH 3/4] usb: misc: add Maxim MAX77865 MUIC USB path select
+
+The MAX77865 MUIC switches the connector's D+/D- between the AP USB PHY,
+UART, audio and the modem. With a cable attached at power-on it leaves the
+switch open (CONTROL1 = 0), so the host never sees the USB device until a
+re-plug lets the MUIC's own detection close it. Select the USB-to-AP path
+(CONTROL1 = 0x89, as the vendor driver's COM_USB_AP) at probe.
+---
+ drivers/usb/misc/Kconfig         |  9 +++++
+ drivers/usb/misc/Makefile        |  1 +
+ drivers/usb/misc/max77865-muic.c | 62 ++++++++++++++++++++++++++++++++
+ 3 files changed, 72 insertions(+)
+ create mode 100644 drivers/usb/misc/max77865-muic.c
+
+diff --git a/drivers/usb/misc/Kconfig b/drivers/usb/misc/Kconfig
+index 0b56b773d..eb19d8cd3 100644
+--- a/drivers/usb/misc/Kconfig
++++ b/drivers/usb/misc/Kconfig
+@@ -33,6 +33,15 @@ config USB_USS720
+ 	  To compile this driver as a module, choose M here: the
+ 	  module will be called uss720.
+ 
++config USB_MAX77865_MUIC
++	tristate "Maxim MAX77865 MUIC USB path select"
++	depends on I2C && OF
++	help
++	  Route the USB connector's data lines to the application processor
++	  on boards with a Maxim MAX77865 MUIC (e.g. the Samsung Galaxy
++	  Note 8), whose switch is left open when a cable is attached at
++	  power-on.
++
+ config USB_EMI62
+ 	tristate "EMI 6|2m USB Audio interface support"
+ 	help
+diff --git a/drivers/usb/misc/Makefile b/drivers/usb/misc/Makefile
+index 494ab0377..4c9d1436d 100644
+--- a/drivers/usb/misc/Makefile
++++ b/drivers/usb/misc/Makefile
+@@ -35,3 +35,4 @@ obj-$(CONFIG_USB_SISUSBVGA)		+= sisusbvga/
+ obj-$(CONFIG_USB_LINK_LAYER_TEST)	+= lvstest.o
+ obj-$(CONFIG_BRCM_USB_PINMAP)		+= brcmstb-usb-pinmap.o
+ obj-$(CONFIG_USB_ONBOARD_DEV)		+= onboard_usb_dev.o
++obj-$(CONFIG_USB_MAX77865_MUIC)		+= max77865-muic.o
+diff --git a/drivers/usb/misc/max77865-muic.c b/drivers/usb/misc/max77865-muic.c
+new file mode 100644
+index 000000000..72a5978d2
+--- /dev/null
++++ b/drivers/usb/misc/max77865-muic.c
+@@ -0,0 +1,62 @@
++// SPDX-License-Identifier: GPL-2.0-only
++/*
++ * Maxim MAX77865 MUIC: route the USB connector's D+/D- to the AP.
++ *
++ * The MUIC switches the data lines between the AP USB PHY, UART, audio and
++ * the modem. When a cable is already attached at power-on its switch is
++ * left open (CONTROL1 = 0), so the USB device controller is never seen by
++ * the host until a re-plug lets the MUIC's own detection close it. Without
++ * a full MUIC driver, select the USB-to-AP path once at probe time.
++ *
++ * Register layout from the vendor muic_regmap_max77865.c.
++ */
++
++#include <linux/i2c.h>
++#include <linux/module.h>
++#include <linux/of.h>
++
++#define MAX77865_MUIC_REG_DEVICEID	0x00
++#define MAX77865_MUIC_REG_CONTROL1	0x19
++
++/* CONTROL1: D- [2:0], D+ [5:3], ID bypass [6], no BC comparator [7] */
++#define CONTROL1_COM_USB		0x1
++#define CONTROL1_NO_BC_COMP		BIT(7)
++#define CONTROL1_USB_AP			(CONTROL1_NO_BC_COMP | \
++					 (CONTROL1_COM_USB << 3) | \
++					 CONTROL1_COM_USB)
++
++static int max77865_muic_probe(struct i2c_client *client)
++{
++	int id, ret;
++
++	id = i2c_smbus_read_byte_data(client, MAX77865_MUIC_REG_DEVICEID);
++	if (id < 0)
++		return dev_err_probe(&client->dev, id, "no MUIC\n");
++
++	ret = i2c_smbus_write_byte_data(client, MAX77865_MUIC_REG_CONTROL1,
++					CONTROL1_USB_AP);
++	if (ret)
++		return dev_err_probe(&client->dev, ret,
++				     "failed to select the USB path\n");
++
++	dev_info(&client->dev, "MUIC id 0x%02x, D+/D- routed to the AP USB\n", id);
++	return 0;
++}
++
++static const struct of_device_id max77865_muic_of_match[] = {
++	{ .compatible = "maxim,max77865-muic" },
++	{ }
++};
++MODULE_DEVICE_TABLE(of, max77865_muic_of_match);
++
++static struct i2c_driver max77865_muic_driver = {
++	.driver = {
++		.name = "max77865-muic",
++		.of_match_table = max77865_muic_of_match,
++	},
++	.probe = max77865_muic_probe,
++};
++module_i2c_driver(max77865_muic_driver);
++
++MODULE_DESCRIPTION("Maxim MAX77865 MUIC USB path select");
++MODULE_LICENSE("GPL");
+
+From 5f292329584c93ab89594dc8e9acb6da6553fa6a Mon Sep 17 00:00:00 2001
+From: Athul <athulkrishnan97@users.noreply.github.com>
+Date: Thu, 8 Oct 2026 10:44:04 +0100
+Subject: [PATCH 4/4] arm64: dts: exynos8895: add USB DRD; greatlte: USB
+ peripheral and MUIC
+
+Add the DWC3 DRD controller (0x10c00000, SPI 337) with its Exynos glue and
+the USB DRD PHY (0x10e00000, window covering both ports and the reference
+clock select). Enable it on greatlte as a high-speed peripheral, and add
+the MAX77865 bus (HSI2C_USI13_1) with the MUIC so the data lines are
+routed to the AP even with a cable attached at power-on.
+---
+ .../boot/dts/exynos/exynos8895-greatlte.dts   | 34 +++++++++++++++
+ arch/arm64/boot/dts/exynos/exynos8895.dtsi    | 43 +++++++++++++++++++
+ 2 files changed, 77 insertions(+)
+
+diff --git a/arch/arm64/boot/dts/exynos/exynos8895-greatlte.dts b/arch/arm64/boot/dts/exynos/exynos8895-greatlte.dts
+index a62a7ed1e..e0d20518e 100644
+--- a/arch/arm64/boot/dts/exynos/exynos8895-greatlte.dts
++++ b/arch/arm64/boot/dts/exynos/exynos8895-greatlte.dts
+@@ -390,3 +390,37 @@ &pcie0 {
+ &pcie_phy0 {
+ 	status = "okay";
+ };
++
++/* USB: peripheral only for now (no Type-C role switching), high speed */
++&usbdrd {
++	status = "okay";
++};
++
++&usbdrd_dwc3 {
++	dr_mode = "peripheral";
++	maximum-speed = "high-speed";
++};
++
++&usbdrd_phy {
++	status = "okay";
++};
++
++/* MAX77865 (PMIC/charger/MUIC) bus: HSI2C_USI13_1 */
++&usi13 {
++	samsung,mode = <USI_MODE_I2C1>;
++
++	status = "okay";
++};
++
++&hsi2c_32 {
++	#address-cells = <1>;
++	#size-cells = <0>;
++
++	status = "okay";
++
++	/* MUIC: D+/D- switch, left open when a cable is attached at power-on */
++	muic@25 {
++		compatible = "maxim,max77865-muic";
++		reg = <0x25>;
++	};
++};
+diff --git a/arch/arm64/boot/dts/exynos/exynos8895.dtsi b/arch/arm64/boot/dts/exynos/exynos8895.dtsi
+index dca60883a..f954702a7 100644
+--- a/arch/arm64/boot/dts/exynos/exynos8895.dtsi
++++ b/arch/arm64/boot/dts/exynos/exynos8895.dtsi
+@@ -1552,6 +1552,49 @@ cmu_fsys0: clock-controller@11000000 {
+ 				      "ufs", "usbdrd30";
+ 		};
+ 
++		/*
++		 * USB 3.0 DRD: Synopsys DWC3 + the "KC" Exynos USB DRD PHY (two
++		 * port blocks, one per Type-C orientation; the window also covers
++		 * the reference clock select at 0x10e5007c).
++		 */
++		usbdrd: usb@10c00000 {
++			compatible = "samsung,exynos8895-dwusb3";
++			ranges = <0x0 0x10c00000 0x10000>;
++			#address-cells = <1>;
++			#size-cells = <1>;
++			clocks = <&cmu_fsys0 CLK_GOUT_FSYS0_USBTV_I_USB30DRD_ACLK>,
++				 <&cmu_fsys0 CLK_GOUT_FSYS0_USBTV_I_USB30DRD_SUSPEND_CLK>,
++				 <&cmu_fsys0 CLK_GOUT_FSYS0_USBTV_I_USB30DRD_REF_CLK>,
++				 <&cmu_fsys0 CLK_GOUT_FSYS0_LHM_AXI_D_USBTV_I_CLK>,
++				 <&cmu_fsys0 CLK_GOUT_FSYS0_US_D_FSYS0_USB_ACLK>,
++				 <&cmu_fsys0 CLK_GOUT_FSYS0_USBTV_I_USBTVH_XIU_CLK>,
++				 <&cmu_fsys0 CLK_GOUT_FSYS0_USBTV_I_USBTVH_AHB_CLK>;
++			clock-names = "aclk", "susp_clk", "ref", "bus_lhm", "bus_us",
++				      "usbtv_xiu", "usbtv_ahb";
++			status = "disabled";
++
++			usbdrd_dwc3: usb@0 {
++				compatible = "snps,dwc3";
++				reg = <0x0 0x10000>;
++				interrupts = <GIC_SPI 337 IRQ_TYPE_LEVEL_HIGH>;
++				phys = <&usbdrd_phy 0>;
++				phy-names = "usb2-phy";
++				snps,dis_u2_susphy_quirk;
++				snps,dis_enblslpm_quirk;
++			};
++		};
++
++		usbdrd_phy: phy@10e00000 {
++			compatible = "samsung,exynos8895-usbdrd-phy";
++			reg = <0x10e00000 0x50080>;
++			clocks = <&cmu_fsys0 CLK_GOUT_FSYS0_USBTV_I_USB30DRD_ACLK>,
++				 <&oscclk>;
++			clock-names = "phy", "ref";
++			samsung,pmu-syscon = <&pmu_system_controller>;
++			#phy-cells = <1>;
++			status = "disabled";
++		};
++
+ 		ufs: ufs@11120000 {
+ 			compatible = "samsung,exynos8895-ufs";
+ 			reg = <0x11120000 0x200>,
