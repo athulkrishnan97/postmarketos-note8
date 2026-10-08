@@ -30,6 +30,7 @@ the uniLoader board files, and the phone-side runtime addons.
 | Boot | Samsung bootloader → uniLoader → mainline kernel → postmarketOS rootfs from **internal UFS** (or microSD) |
 | Display | Native KMS: **DECON_f → dual DSC encoders → DSI (4 lanes) → S6E3HA6** AMOLED, 1440×2960, command mode with real vblank (59 Hz panel refresh), zero-copy GPU scan-out (PRIME) |
 | CPU frequency scaling | Stock maxima: 741 MHz – **2.314 GHz** (big Mongoose) / 455 MHz – 1.69 GHz (little A53), `schedutil`, with **voltage scaling** via the S2MPS17 PMIC over a ported SPEEDY bus driver. Cluster clocks/rails and voltages match the phone's ECT tables. |
+| RAM | All **6 GB** banks (5.6 GB usable: ~230 MB is reserved for firmware carveouts). The 4th bank at `0x900000000` is normally filled in by Samsung's bootloader; our dts lists it. |
 | Thermal | Exynos 8895 **TMU** (mainline `exynos_tmu` + an 8895 variant): CPU throttling from 83 °C with graded trips, critical shutdown at 115 °C. Sustained all-core load holds ~88 °C. Without it the SoC ran away past 150 °C and reset. |
 | GPU | Mali-G71 MP20 via mainline **panfrost** at **546 MHz** (stock max, ECT voltage + margin), Mesa kmsro pairs it with the display; kmscube 60 fps |
 | Touchscreen | Samsung s6sy761 (Y661), multi-touch, works in console **and** Plasma Mobile |
@@ -52,7 +53,6 @@ the uniLoader board files, and the phone-side runtime addons.
 | Sustained full-speed WiFi RX | >5–10 min of heavy download instantly reboots the phone (no panic log). Suspect brcmfmac. | Trickled transfers work around it; needs a proper bug hunt. |
 | USB to a PC | No USB device controller yet (`dummy_hcd` is disabled: its virtual loopback only produced a fake `usb0`/`usb1` Ethernet pair). | Port the dwc3 + USB-C role-switch setup. |
 | S Pen (wacom w90xx) / hw keys | No mainline driver. | Port the downstream wacom_i2c-style driver. |
-| Full 6 GB RAM | Kernel sees 3.7 GB: the dts memory nodes cover 4 GB, and ~230 MB of that is reserved for firmware carveouts. | Fix the dts memory nodes. |
 
 ## Repository layout
 
@@ -73,7 +73,8 @@ aports/                 postmarketOS device packages (build these with pmbootstr
                                    exynos8895-decon-frame-start.patch (60 fps:
                                    vblank/flip at frame start),
                                    exynos8895-thermal.patch (TMU + thermal zones),
-                                   exynos8895-cpu-2314.patch (big cluster to 2.3 GHz)
+                                   exynos8895-cpu-2314.patch (big cluster to 2.3 GHz),
+                                   greatlte-6gb-ram.patch (4th DRAM bank)
   device-samsung-greatlte/         device package (initramfs hooks, device info)
   uniloader-samsung-greatlte/      bootloader package
 uniloader-files/        our uniLoader board port (2 files; applied onto upstream uniLoader)

@@ -1,0 +1,29 @@
+From b88351beaf0fa9bb3e6372bbeeaacf326577e421 Mon Sep 17 00:00:00 2001
+From: Athul <athulkrishnan97@users.noreply.github.com>
+Date: Thu, 8 Oct 2026 08:54:32 +0100
+Subject: [PATCH] greatlte: describe the fourth DRAM bank (all 6 GB)
+
+The stock DT lists memory@900000000 with size 0 and the Samsung
+bootloader fills in the size at boot (4 GB vs 6 GB boards). uniLoader
+boots the kernel with our dtb, which never gets that fixup, so only
+3.7 GB was visible. Every Exynos Note 8 (N950F/FD/DS) has 6 GB: add the
+2 GB bank at 0x900000000. MemTotal 3.7 -> 5.6 GB; a fill/verify of
+3.5 GB (into the new bank) passes.
+---
+ arch/arm64/boot/dts/exynos/exynos8895-greatlte.dts | 3 ++-
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+diff --git a/arch/arm64/boot/dts/exynos/exynos8895-greatlte.dts b/arch/arm64/boot/dts/exynos/exynos8895-greatlte.dts
+index f6b1e0789..a62a7ed1e 100644
+--- a/arch/arm64/boot/dts/exynos/exynos8895-greatlte.dts
++++ b/arch/arm64/boot/dts/exynos/exynos8895-greatlte.dts
+@@ -29,7 +29,8 @@ memory@80000000 {
+ 		device_type = "memory";
+ 		reg = <0x0 0x80000000 0x3c800000>,
+ 		      <0x0 0xc0000000 0x40000000>,
+-		      <0x8 0x80000000 0x80000000>;
++		      <0x8 0x80000000 0x80000000>,
++		      <0x9 0x00000000 0x80000000>;
+ 	};
+ 
+ 	/* UFS device VCC, switched by the AP (downstream ufs_fixed_vcc) */

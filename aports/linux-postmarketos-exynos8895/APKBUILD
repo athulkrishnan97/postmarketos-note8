@@ -4,7 +4,7 @@ maintainer="Jonas Heinrich <onny@project-insanity.org>"
 _flavor="postmarketos-exynos8895"
 pkgname=linux-$_flavor
 pkgver=7.0
-pkgrel=3
+pkgrel=4
 pkgdesc="Close-to-mainline kernel for Samsung Exynos 8895 devices"
 arch="aarch64"
 _carch="arm64"
@@ -58,6 +58,7 @@ source="
 	exynos8895-decon-frame-start.patch
 	exynos8895-thermal.patch
 	exynos8895-cpu-2314.patch
+	greatlte-6gb-ram.patch
 "
 
 
@@ -107,4 +108,5 @@ ed9f25a252dd7087768903a6f60b935675d979f786685ba4615cfde129a74afc433607668a9dd9f7
 61af4a62eb318b1bef3e211c2ca4c9ed09c88ca6054f54c64f9f3108cb33a4f7d4ab4f9d7d52a0d4a8d68e7be08b1d3fcd6427ab3644a2cd465c09250a40b048  exynos8895-decon-frame-start.patch
 0b8d25d8dc433baf0b76cbab86abf51769f889f93adf5e0384a3499c0c8dc97494c99550b9ecf1b467bcf10b1ddf86d287d2c3ccd0c64cb0afa44e902aedeff6  exynos8895-thermal.patch
 bb403ed23757df46e4d65ad5980e14dec7367d42579948b6c2d14b7bdc7202c59894741fe86a61d3fc8dec99cf3b8622a560b08b632376f8ee638b51f7d6c597  exynos8895-cpu-2314.patch
+1564428cff732b106fd515c68b9575133216668450bcda7e0fcf31e6059180501c2b81e1919d578469c1d89e2b965c4c7f4d640d92078059a9cde1218f0f1f69  greatlte-6gb-ram.patch
 "
