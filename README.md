@@ -129,8 +129,8 @@ tools/                  install-rootfs-addons.sh (put rootfs-addons into a pmboo
                         ect_parse.py (dump the bootloader's ECT voltage/PLL tables),
                         regdump.c (/dev/mem register ranges), reboot-download.c
 docs/BRINGUP.md         the full technical journey: every root cause we hit
-docs/HANDOVER.md        running handover notes between agents (state, lessons, open items)
                         (section 15: display, GPU clock, CPU clusters)
+docs/HANDOVER.md        running handover notes between agents (state, lessons, open items)
 ```
 
 ## Quick start (prebuilt release)
