@@ -1000,3 +1000,47 @@ the codec's supplies. What it took:
 
 Not done: the bottom loudspeaker (MAX98506 amp on its own UAIF, i2c bus 0 at
 0x31), microphones (MICBIAS), jack detection.
+
+## Boot freeze, scheduler capacity, panel brightness (kernel 7.0-r9)
+
+**Boot freeze on 5 GHz.** After the audio work the phone froze 35–55 s after
+boot: the whole SoC stopped (even the 0.5 s DECON heartbeat), no panic, no
+pstore. Two separate things turned up while chasing it:
+
+- The Calliope firmware writes to IOVA 0xA0500000/0xA0570000 right after it
+  boots. That is the voice firmware (VSS) window downstream maps to the modem's
+  memory. Unmapped, each access is a SysMMU fault; one boot logged ~8,600 of
+  them in a burst, printed from IRQ context. `exynos8895-audio-vss.patch` maps
+  the whole 8 MiB window to the dummy page at probe and retries the resume IPC
+  after boot-done. That ended the faults but not the freeze.
+- With the ABOX module blacklisted the phone still froze, so audio was not the
+  trigger. A/B boots: 5 GHz + `cpuspeed` switching to schedutil at ~29 s →
+  froze 3/3; 2.4 GHz → fine; 5 GHz with the switch delayed to 90 s → fine (2/2);
+  5 GHz joined after boot → fine for 10+ min. The freeze needs the 5 GHz link,
+  the CPU boost and the desktop/GPU start-up (~31 s) together. `cpuspeed.start`
+  now backgrounds itself and waits until 90 s of uptime. Root cause still open.
+- Every boot logs `panfrost: gpu sched timeout, js=1 ... head=0xa008380` at
+  ~33 s, including good ones (and in logs from 2026-10-07). Harmless.
+
+**Scheduler capacity.** Logical CPUs 0 and 5–7 are A53s (the boot CPU is
+`cpu@100`), 1–4 are Mongoose M2. Without `capacity-dmips-mhz` all eight read
+`cpu_capacity` 1024 and busy threads (browsers) ran on A53s as often as on M2s.
+A pinned single-thread sha256 of 64 MB takes 1.55 s on an A53 at 1.69 GHz and
+0.64 s on an M2 at 2.314 GHz, hence 1024 (M2) / 572 (A53) →
+`cpu_capacity` 1024 / 417. Unpinned runs now land on the M2s at 0.64 s.
+
+**Brightness.** The panel has no DCS 0x51. `greatlte-panel-backlight.patch`
+registers a raw backlight (0–1023) that writes only the AOR register: key2
+(`F0 5A 5A`), `B1 hi lo`, latch `F7 03`, key2 off. AOR runs from 0x000C (the
+downstream value at full brightness, and what the bootloader leaves) to 0x0B75
+(the downstream lowest level), on a square-law curve. Gamma stays at the
+bootloader's values, so 100 % equals the old fixed brightness and nothing goes
+brighter. KWin picks the device up by itself and turns software brightness off
+(`allowSdrSoftwareBrightness: false` in `kwinoutputconfig.json`), removing a
+full-screen GPU pass per frame. The full downstream scheme also reprograms gamma
+and ELVSS per luminance from the MTP calibration, which would keep colours exact
+at the dark end.
+
+Also checked and not limiting: thermal (45–48 °C idle, trips from 83 °C), GPU
+clock (the G3D PLL reads 0xA0A80411 = 546 MHz; the "clock rate = 260000000"
+boot message is stale), UFS (HS-G3 ×2), and Firefox renders through panfrost.

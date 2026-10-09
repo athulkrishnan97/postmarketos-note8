@@ -1,0 +1,84 @@
+From 9e795df029a3a9948d62d03d44a8461595d2fb0e Mon Sep 17 00:00:00 2001
+From: Athul <athulkrishnan97@users.noreply.github.com>
+Date: Fri, 9 Oct 2026 16:31:27 +0100
+Subject: [PATCH 2/3] arm64: dts: exynos8895: describe big/little CPU capacity
+
+Without capacity-dmips-mhz the scheduler treats the Cortex-A53 and the
+Mongoose M2 cores as equal, so busy threads land on the little cores as
+often as on the big ones. A single-threaded sha256 run takes 1.55 s on
+an A53 at 1.69 GHz and 0.64 s on an M2 at 2.314 GHz (2.45x).
+---
+ arch/arm64/boot/dts/exynos/exynos8895.dtsi | 8 ++++++++
+ 1 file changed, 8 insertions(+)
+
+diff --git a/arch/arm64/boot/dts/exynos/exynos8895.dtsi b/arch/arm64/boot/dts/exynos/exynos8895.dtsi
+index f954702a7..361cf0c12 100644
+--- a/arch/arm64/boot/dts/exynos/exynos8895.dtsi
++++ b/arch/arm64/boot/dts/exynos/exynos8895.dtsi
+@@ -68,6 +68,7 @@ core3 {
+ 		cpu4: cpu@0 {
+ 			device_type = "cpu";
+ 			compatible = "samsung,mongoose-m2";
++			capacity-dmips-mhz = <1024>;
+ 			reg = <0x0>;
+ 			enable-method = "psci";
+ 			clocks = <&cmu_cpucl0 CLK_CLUSTER0_CLK>;
+@@ -80,6 +81,7 @@ cpu4: cpu@0 {
+ 		cpu5: cpu@1 {
+ 			device_type = "cpu";
+ 			compatible = "samsung,mongoose-m2";
++			capacity-dmips-mhz = <1024>;
+ 			reg = <0x1>;
+ 			enable-method = "psci";
+ 			clocks = <&cmu_cpucl0 CLK_CLUSTER0_CLK>;
+@@ -92,6 +94,7 @@ cpu5: cpu@1 {
+ 		cpu6: cpu@2 {
+ 			device_type = "cpu";
+ 			compatible = "samsung,mongoose-m2";
++			capacity-dmips-mhz = <1024>;
+ 			reg = <0x2>;
+ 			enable-method = "psci";
+ 			clocks = <&cmu_cpucl0 CLK_CLUSTER0_CLK>;
+@@ -104,6 +107,7 @@ cpu6: cpu@2 {
+ 		cpu7: cpu@3 {
+ 			device_type = "cpu";
+ 			compatible = "samsung,mongoose-m2";
++			capacity-dmips-mhz = <1024>;
+ 			reg = <0x3>;
+ 			enable-method = "psci";
+ 			clocks = <&cmu_cpucl0 CLK_CLUSTER0_CLK>;
+@@ -116,6 +120,7 @@ cpu7: cpu@3 {
+ 		cpu0: cpu@100 {
+ 			device_type = "cpu";
+ 			compatible = "arm,cortex-a53";
++			capacity-dmips-mhz = <572>;
+ 			reg = <0x100>;
+ 			enable-method = "psci";
+ 			clocks = <&cmu_cpucl1 CLK_CLUSTER1_CLK>;
+@@ -128,6 +133,7 @@ cpu0: cpu@100 {
+ 		cpu1: cpu@101 {
+ 			device_type = "cpu";
+ 			compatible = "arm,cortex-a53";
++			capacity-dmips-mhz = <572>;
+ 			reg = <0x101>;
+ 			enable-method = "psci";
+ 			clocks = <&cmu_cpucl1 CLK_CLUSTER1_CLK>;
+@@ -140,6 +146,7 @@ cpu1: cpu@101 {
+ 		cpu2: cpu@102 {
+ 			device_type = "cpu";
+ 			compatible = "arm,cortex-a53";
++			capacity-dmips-mhz = <572>;
+ 			reg = <0x102>;
+ 			enable-method = "psci";
+ 			clocks = <&cmu_cpucl1 CLK_CLUSTER1_CLK>;
+@@ -152,6 +159,7 @@ cpu2: cpu@102 {
+ 		cpu3: cpu@103 {
+ 			device_type = "cpu";
+ 			compatible = "arm,cortex-a53";
++			capacity-dmips-mhz = <572>;
+ 			reg = <0x103>;
+ 			enable-method = "psci";
+ 			clocks = <&cmu_cpucl1 CLK_CLUSTER1_CLK>;
+-- 
+2.53.0
+

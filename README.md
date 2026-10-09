@@ -20,8 +20,8 @@ device kernel packages (with all our mainline driver work as patch files),
 the uniLoader board files, and the phone-side runtime addons.
 
 > Status: **daily-driver-ish for tinkering**. See "What works / What doesn't"
-> below — brightness control and the boot console are the main known
-> limitations.
+> below — the boot console, the loudspeaker and the microphones are the main
+> known limitations.
 >
 > **New user?** Grab the prebuilt boot image and microSD image from the
 > [Releases](https://github.com/athulkrishnan97/postmarketos-note8/releases)
@@ -35,10 +35,11 @@ the uniLoader board files, and the phone-side runtime addons.
 |---|---|
 | Boot | Samsung bootloader → uniLoader → mainline kernel → postmarketOS rootfs from **internal UFS** (or microSD) |
 | Display | Native KMS: **DECON_f → dual DSC encoders → DSI (4 lanes) → S6E3HA6** AMOLED, 1440×2960, command mode with real vblank (59 Hz panel refresh), zero-copy GPU scan-out (PRIME) |
-| CPU frequency scaling | Stock maxima: 741 MHz – **2.314 GHz** (big Mongoose) / 455 MHz – 1.69 GHz (little A53), `schedutil`, with **voltage scaling** via the S2MPS17 PMIC over a ported SPEEDY bus driver. Cluster clocks/rails and voltages match the phone's ECT tables. |
+| CPU frequency scaling | Stock maxima: 741 MHz – **2.314 GHz** (big Mongoose) / 455 MHz – 1.69 GHz (little A53), `schedutil`, with **voltage scaling** via the S2MPS17 PMIC over a ported SPEEDY bus driver. Cluster clocks/rails and voltages match the phone's ECT tables. The dts gives the scheduler the cores' relative speed (`capacity-dmips-mhz`, M2 ≈ 2.45× an A53), so busy threads run on the big cores. |
 | RAM | All **6 GB** banks (5.6 GB usable: ~230 MB is reserved for firmware carveouts). The 4th bank at `0x900000000` is normally filled in by Samsung's bootloader; our dts lists it. |
 | Thermal | Exynos 8895 **TMU** (mainline `exynos_tmu` + an 8895 variant): CPU throttling from 83 °C with graded trips, critical shutdown at 115 °C. Sustained all-core load holds ~88 °C. Without it the SoC ran away past 150 °C and reset. |
 | GPU | Mali-G71 MP20 via mainline **panfrost** at **546 MHz** (stock max, ECT voltage + margin), Mesa kmsro pairs it with the display; kmscube 60 fps |
+| Brightness | Real panel brightness through a backlight device in the panel driver: it sets the AMOLED off ratio (AOR, 0xB1) on top of the bootloader's gamma, so 100 % is the bootloader's level and the slider dims from there. KWin uses it instead of recolouring every frame on the GPU. |
 | Touchscreen | Samsung s6sy761 (Y661), multi-touch, works in console **and** Plasma Mobile |
 | WiFi | Broadcom **BCM4361**B0 (PCIe, brcmfmac) — auto-connects at boot. Use 2.4 GHz WPA2. |
 | Bluetooth | BCM4347B0 UART, works (incl. a BT-PAN IP link to a laptop) |
@@ -59,9 +60,8 @@ the uniLoader board files, and the phone-side runtime addons.
 | Feature | Why | Path forward |
 |---|---|---|
 | microSD under heavy reads | No `vqmmc` (S2MPS17 LDO2) yet, so UHS signalling is never switched to 1.8 V: sustained reads can hit command timeouts / I/O errors. Irrelevant when booting from UFS. | Add LDO2 + downstream per-mode sample timings. |
-| Brightness control | The panel has no DCS 0x51; Samsung dims with AOR (0xB1) + gamma/ELVSS tables, and raw writes mid-frame glitch. Plasma falls back to **software brightness**, which recolours every pixel on the GPU: below 100 % the desktop gets noticeably slower. | A frame-synchronised backlight device in the panel driver. |
 | Boot console on the panel | Enabling fbdev emulation (fbcon) crashes early boot; the screen stays black until Plasma starts. | Debug the fbdev path against the DECON driver. |
-| 5 GHz / WPA3 WiFi | The 2.4 GHz WPA2 SSID connects; the 5 GHz WPA3 one scans but won't associate. | Investigate firmware/CLM/regulatory. |
+| 5 GHz / WPA3 WiFi | 5 GHz WPA2 associates, but booting while joined to a 5 GHz network froze the phone ~35–55 s in, when the CPU boost and the desktop/GPU start-up coincided (2.4 GHz boots never did). `cpuspeed.start` now waits until 90 s after boot, which avoids it. The WPA3 SSID still won't associate. | Find the actual cause (brcmfmac at 5 GHz vs. a supply droop under load). |
 | Sustained full-speed WiFi RX | >5–10 min of heavy download instantly reboots the phone (no panic log). Suspect brcmfmac. | Trickled transfers work around it; needs a proper bug hunt. |
 | USB host mode / USB 3 | Peripheral only, high speed. Host mode (OTG) needs Type-C role detection (S2MM005) and VBUS output; USB 3 needs the PIPE3 side of the PHY. | S2MM005 / role switch; PIPE3 init from the vendor CAL. |
 | Loudspeaker, microphones, jack detection | The bottom speaker sits behind a MAX98506 amplifier on its own I2S port (no driver yet); the mics need MICBIAS routing; no jack/button detection. Calls need the modem. | MAX98506 driver on ABOX UAIF/speaker bus; UCM capture devices. |
@@ -95,7 +95,12 @@ aports/                 postmarketOS device packages (build these with pmbootstr
                                    greatlte-panel-off.patch (panel off on DPMS),
                                    exynos8895-audio.patch (ABOX audio driver +
                                    Calliope firmware boot, CS47L93 codec supplies,
-                                   PMU clock output, sound card, dts)
+                                   PMU clock output, sound card, dts),
+                                   exynos8895-audio-vss.patch (map the firmware's
+                                   VSS window: no SysMMU fault storm at boot),
+                                   exynos8895-cpu-capacity.patch (big/little
+                                   capacity for the scheduler),
+                                   greatlte-panel-backlight.patch (AOR brightness)
   device-samsung-greatlte/         device package (initramfs hooks, device info)
   uniloader-samsung-greatlte/      bootloader package
 uniloader-files/        our uniLoader board port (2 files; applied onto upstream uniLoader)
@@ -108,7 +113,7 @@ rootfs-addons/          files to install into the phone rootfs
   etc-NetworkManager-dispatcher.d/60-appstream  fetch Discover's catalogues (Alpine + Flathub) once online
   etc-udev-rules.d/                 starts/stops hciattach on rfkill
   etc-NetworkManager-dispatcher.d/  resyncs the clock once WiFi is up (no RTC)
-  etc-local.d/cpuspeed.start        switches both clusters to schedutil after boot
+  etc-local.d/cpuspeed.start        switches both clusters to schedutil 90 s after boot
   usr-local-bin/bt-pan-up.sh        one-command BT-PAN network to a laptop
   firmware/                         BCM4361 wifi firmware + board NVRAM + BT .hcd,
                                     ABOX Calliope audio firmware (calliope_*.bin)

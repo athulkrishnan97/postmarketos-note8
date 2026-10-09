@@ -1,4 +1,6 @@
 #!/bin/sh
+# Run in the background so the wait below does not hold up boot.
+[ -z "$CPUSPEED_BG" ] && { CPUSPEED_BG=1 "$0" </dev/null >/dev/null 2>&1 & exit 0; }
 # greatlte: after boot, let schedutil scale both clusters up to the stock
 # maxima (2.314 GHz big / 1.69 GHz little). The TMU thermal zone throttles
 # from 83 C. Switching only after boot: running at full speed while udev
@@ -9,7 +11,9 @@ while [ $n -lt 60 ]; do
 	sleep 2
 	n=$((n+1))
 done
-sleep 3
+# Let the desktop finish starting first: CPU boost + GPU start-up at once
+# on a low battery has frozen the phone.
+while [ $(cut -d. -f1 /proc/uptime) -lt 90 ]; do sleep 5; done
 for p in /sys/devices/system/cpu/cpu0/cpufreq /sys/devices/system/cpu/cpu4/cpufreq; do
 	[ -d "$p" ] && echo schedutil > "$p/scaling_governor" 2>/dev/null
 done
