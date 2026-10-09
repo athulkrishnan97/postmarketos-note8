@@ -20,8 +20,8 @@ device kernel packages (with all our mainline driver work as patch files),
 the uniLoader board files, and the phone-side runtime addons.
 
 > Status: **daily-driver-ish for tinkering**. See "What works / What doesn't"
-> below — the boot console, the loudspeaker and the microphones are the main
-> known limitations.
+> below — the boot console, the microphones and calls are the main known
+> limitations.
 >
 > **New user?** Grab the prebuilt boot image and microSD image from the
 > [Releases](https://github.com/athulkrishnan97/postmarketos-note8/releases)
@@ -50,7 +50,7 @@ the uniLoader board files, and the phone-side runtime addons.
 | MTP | `usb-mode mtp` switches the USB gadget to MTP (`umtprd` via postmarketOS's usb-signaller): the phone's `/home` appears as "Home" in Dolphin/Files, ~14 MB/s each way. `usb-mode developer` switches back to USB networking (SSH); only one mode at a time. |
 | Battery level | MAX77865 fuel gauge via the mainline `max17042_battery` driver (new `maxim,max77865-battery` compatible): percentage, voltage, current, temperature, capacity and cycle count in Plasma/UPower. |
 | Charging | ~1 A from USB. A small MAX77865 charger driver services the charge watchdog the bootloader leaves on (otherwise charging stops ~3 min after boot) and reports the charger to Plasma. Current limits are the bootloader's. |
-| Audio | **Earpiece** (top receiver) for media and system sound through PulseAudio/Plasma, volume keys included. A new mainline **ABOX** driver boots Samsung's Calliope firmware on the audio subsystem's Cortex-A7 and streams over UAIF0 to the **CS47L93** codec (madera driver, I2S provider, FLL from the 26 MHz PMU clock output). Capture path works (loopback-verified). ALSA UCM profile in `rootfs-addons/`; earpiece volume capped at −6 dB where it starts to distort. Headphone jack routed but untested (no jack detection yet). |
+| Audio | **Bottom loudspeaker** (default output) and **earpiece** (top receiver) for media and system sound through PulseAudio/Plasma, volume keys included. The speaker is a MAX98506 amplifier (new mainline driver) on ABOX UAIF4, whose pins are `gph3-0..3`; it plays at 48 kHz at the stock +13 dB gain, and PulseAudio does its volume in software (the amp mutes briefly on every gain change). A new mainline **ABOX** driver boots Samsung's Calliope firmware on the audio subsystem's Cortex-A7 and streams over UAIF0 to the **CS47L93** codec (madera driver, I2S provider, FLL from the 26 MHz PMU clock output). Capture path works (loopback-verified). ALSA UCM profile in `rootfs-addons/`; earpiece volume capped at −6 dB where it starts to distort. Headphone jack routed but untested (no jack detection yet). |
 | Screen off | The power button turns the panel off (display off + sleep in) and back on. Tap-to-wake is KWin's `DoubleTapWakeup` (`~/.config/kwinrc`, `[Wayland]`); set it to `false` to wake only with the power button. |
 | Internal storage | Toshiba THGAF4G9N4LBAIRA 64 GB **UFS 2.1**, mainline `ufs-exynos` with an 8895 variant: **HS-G3 rate B ×2 lanes, ~600 MB/s**. Root on `USERDATA` (sda21, 52.7 GB), `/boot` on `CACHE` (sda16). All 21 GPT partitions + boot/RPMB LUNs visible. |
 | microSD | Optional now; works at UHS SDR50 (heavy reads can still error, see below) |
@@ -64,7 +64,7 @@ the uniLoader board files, and the phone-side runtime addons.
 | 5 GHz / WPA3 WiFi | 5 GHz WPA2 associates, but booting while joined to a 5 GHz network froze the phone ~35–55 s in, when the CPU boost and the desktop/GPU start-up coincided (2.4 GHz boots never did). `cpuspeed.start` now waits until 90 s after boot, which avoids it. The WPA3 SSID still won't associate. | Find the actual cause (brcmfmac at 5 GHz vs. a supply droop under load). |
 | Sustained full-speed WiFi RX | >5–10 min of heavy download instantly reboots the phone (no panic log). Suspect brcmfmac. | Trickled transfers work around it; needs a proper bug hunt. |
 | USB host mode / USB 3 | Peripheral only, high speed. Host mode (OTG) needs Type-C role detection (S2MM005) and VBUS output; USB 3 needs the PIPE3 side of the PHY. | S2MM005 / role switch; PIPE3 init from the vendor CAL. |
-| Loudspeaker, microphones, jack detection | The bottom speaker sits behind a MAX98506 amplifier on its own I2S port (no driver yet); the mics need MICBIAS routing; no jack/button detection. Calls need the modem. | MAX98506 driver on ABOX UAIF/speaker bus; UCM capture devices. |
+| Microphones, jack detection, speaker protection | The mics need MICBIAS routing; no jack/button detection. The speaker runs without Samsung's DSM speaker protection (it ran on the ABOX DSP), so its gain is held at the stock level. Calls need the modem. | UCM capture devices; madera jack detection. |
 | S Pen (wacom w90xx) / hw keys | No mainline driver. | Port the downstream wacom_i2c-style driver. |
 
 ## Repository layout
@@ -100,7 +100,9 @@ aports/                 postmarketOS device packages (build these with pmbootstr
                                    VSS window: no SysMMU fault storm at boot),
                                    exynos8895-cpu-capacity.patch (big/little
                                    capacity for the scheduler),
-                                   greatlte-panel-backlight.patch (AOR brightness)
+                                   greatlte-panel-backlight.patch (AOR brightness),
+                                   exynos8895-speaker.patch (MAX98506 driver, ABOX
+                                   UAIF4 speaker path, DMA position fix, dts)
   device-samsung-greatlte/         device package (initramfs hooks, device info)
   uniloader-samsung-greatlte/      bootloader package
 uniloader-files/        our uniLoader board port (2 files; applied onto upstream uniLoader)
@@ -117,7 +119,7 @@ rootfs-addons/          files to install into the phone rootfs
   usr-local-bin/bt-pan-up.sh        one-command BT-PAN network to a laptop
   firmware/                         BCM4361 wifi firmware + board NVRAM + BT .hcd,
                                     ABOX Calliope audio firmware (calliope_*.bin)
-  usr-share-alsa-ucm2/              ALSA UCM profile (earpiece / headphones)
+  usr-share-alsa-ucm2/              ALSA UCM profile (speaker / earpiece / headphones)
 tools/                  install-rootfs-addons.sh (put rootfs-addons into a pmbootstrap image),
                         soak.sh (hash-checked per-CPU load test for clocks/thermals),
                         ect_parse.py (dump the bootloader's ECT voltage/PLL tables),

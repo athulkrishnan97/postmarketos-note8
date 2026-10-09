@@ -1044,3 +1044,51 @@ at the dark end.
 Also checked and not limiting: thermal (45–48 °C idle, trips from 83 °C), GPU
 clock (the G3D PLL reads 0xA0A80411 = 546 MHz; the "clock rate = 260000000"
 boot message is stale), UFS (HS-G3 ×2), and Firefox renders through panfrost.
+
+## Bottom loudspeaker: MAX98506 on UAIF4 (kernel 7.0-r10)
+
+The speaker sits behind a Maxim MAX98506 boosted class-D amplifier
+(`maxim,max98506` at 0x31 on hsi2c_11, chip version 0x80). Downstream links it
+to ABOX UAIF4 as an I2S clock consumer (I2S, NB/NF, ABOX provides BCLK/LRCLK),
+16-bit stereo in a 32-BCLK frame, the amp clocked from BCLK. The stock
+`N950FXXUGDZEC` boot.img has exactly the same amp node and driver build
+(0.00.0010) as the reference source.
+
+What it took:
+
+- **Pins.** UAIF4 comes out on **gph3-0..3** ("aud-cdma-bus" downstream), not
+  on gph0-5..7 ("aud-spk-bus"). The latter are wired in parallel to the codec
+  AIF1 nets on gph0-1..3: driving gph0-5 high as a GPIO pulls gph0-1 high. Our
+  dts only muxed the codec and "spk" groups, so UAIF4 drove nothing while the
+  amp, the clock dividers and the routing all looked right. Found with a small
+  static program that samples the GPIO DAT register at ~1.6 MHz from
+  `/dev/mem` and counts edges per pin (`aud_amp_bus` now muxes gph3).
+- **ABOX path.** Speaker playback uses its own RDMA1 straight to SIFS1
+  (SPUS_CTRL0 chain out field: 0 = SIFS1, 1 = SIFS0, 2 = SIFS2; SPUS_CTRL1
+  [18:16] picks the RDMA feeding SIFS1; ROUTE_CTRL0 UAIF4 = 2 for SIFS1; flush
+  SIFS1 with SPUS_CTRL3 bit 0; firmware config SET_OUT1_*). UAIF4 drives its
+  clocks (UAIF_CTRL0 MODE = 1 - downstream writes 0 for "codec slave", but its
+  4.4 ASoC flips the provider bits for a CPU DAI that is a codec) from
+  CMU_ABOX AUDIF (0x1800, 49.152 MHz) through the 5-bit UAIF divider
+  (0x1828 + 4n): 1.536 MHz needs /32, so the link is 48 kHz only. Keep
+  UAIF_CTRL0[27:24] (START_FIFO_DIFF_SPK) at its reset value 1.
+- **DMA position.** The RDMA/WDMA status count field is in 16-byte units like
+  the offset (measured: 12 units/ms at 48 kHz stereo 16-bit = 192 B/ms), not
+  bytes as downstream adds it. The old pointer crawled at 1/16 speed and then
+  jumped a period, and PulseAudio underran ~45 times in the first seconds of
+  every stream (audible as choppy starts). Fixed for all DMAs.
+- **Amp quirks.** Registers lock while `GLOBAL_ENABLE` (0x38) is set; enable
+  blocks (0x36) first, then global enable, from `mute_stream` like downstream.
+  On this revision 0x1A[3:0], 0x1C/0x1D and 0x36[3:2] do not take writes, and
+  LIVE_STATUS1 bit 5 (SPKCURNT) reads 1 whenever the amp has no valid I2S - it
+  cleared the moment UAIF4 reached the pins. The gain register (0x2D, -6..+24 dB
+  in 1 dB steps) mutes the output for a moment on every change, so UCM pins it
+  at the stock +13 dB and PulseAudio uses software volume.
+- **No speaker protection.** Downstream runs Maxim DSM on the ABOX DSP with the
+  amp's V/I sense on UAIF4 capture; that is not ported, so the gain is capped
+  at the stock value.
+
+Detour worth recording: before finding the pins, a battery-current comparison
+(amp off / silence / full-scale tone, ~1 A charge current as baseline) showed
+the amp's output stage never drew power - an objective "is the amp running"
+test that needs no ears.

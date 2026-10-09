@@ -1,0 +1,969 @@
+From bd429ff5a592f8f12677e35b4b3e617b378344c9 Mon Sep 17 00:00:00 2001
+From: Athul <athulkrishnan97@users.noreply.github.com>
+Date: Fri, 9 Oct 2026 18:57:58 +0100
+Subject: [PATCH 1/4] ASoC: samsung: abox: speaker path on UAIF4, fix the DMA
+ position
+
+Play UAIF4 (the speaker amplifier) from its own RDMA1 straight to SIFS1,
+with ABOX driving that bus's bit clock from AUDIF. Both RDMAs share the
+playback IPC id, so match firmware messages on the channel too.
+
+The count field of the DMA status is in 16-byte units like the offset,
+not bytes as downstream has it: the position crawled at 1/16 speed and
+jumped a period at a time, and PulseAudio underran for seconds at the
+start of every stream.
+---
+ sound/soc/samsung/abox/abox.c     |  25 +++++++
+ sound/soc/samsung/abox/abox.h     |   2 +
+ sound/soc/samsung/abox/abox_pcm.c | 107 +++++++++++++++++++++++++-----
+ 3 files changed, 118 insertions(+), 16 deletions(-)
+
+diff --git a/sound/soc/samsung/abox/abox.c b/sound/soc/samsung/abox/abox.c
+index 4af658ce0..0533640af 100644
+--- a/sound/soc/samsung/abox/abox.c
++++ b/sound/soc/samsung/abox/abox.c
+@@ -14,6 +14,7 @@
+  */
+ 
+ #include <linux/arm-smccc.h>
++#include <linux/bitfield.h>
+ #include <linux/delay.h>
+ #include <linux/firmware.h>
+ #include <linux/interrupt.h>
+@@ -47,6 +48,10 @@
+ 
+ /* CMU_ABOX (no common clock driver yet) */
+ #define CMU_MUX_CLK_ABOX_UAIF(x)	(0x1004 + (x) * 4)
++#define CMU_DIV_CLK_ABOX_AUDIF		0x1800	/* PLL_AUD / (n + 1) */
++#define CMU_DIV_AUDIF_RATIO		GENMASK(9, 0)
++#define CMU_DIV_CLK_ABOX_UAIF(x)	(0x1828 + (x) * 4)	/* AUDIF / (n + 1) */
++#define CMU_DIV_UAIF_RATIO		GENMASK(4, 0)
+ #define CMU_GATE_MANUAL_ON		(BIT(21) | BIT(20))
+ #define CMU_DIV_CLK_ABOX_PLL		0x1820	/* A7 clock: PLL_AUD / (n + 1) */
+ #define AUD_PLL_RATE_HZ			1179648000UL
+@@ -136,6 +141,26 @@ void abox_uaif_clk_enable(struct abox_data *data, unsigned int id,
+ }
+ EXPORT_SYMBOL_GPL(abox_uaif_clk_enable);
+ 
++/* Bit clock of a UAIF that drives its own clocks, divided from AUDIF. */
++int abox_uaif_set_bclk(struct abox_data *data, unsigned int id,
++		       unsigned long rate)
++{
++	u32 audif_div = FIELD_GET(CMU_DIV_AUDIF_RATIO,
++				  readl(data->cmu + CMU_DIV_CLK_ABOX_AUDIF));
++	unsigned long audif = AUD_PLL_RATE_HZ / (audif_div + 1);
++	unsigned long div = rate ? audif / rate : 0;
++
++	if (!div || div > FIELD_MAX(CMU_DIV_UAIF_RATIO) + 1 ||
++	    audif % rate) {
++		dev_err(data->dev, "UAIF%u: no %lu Hz bit clock from %lu Hz\n",
++			id, rate, audif);
++		return -EINVAL;
++	}
++	writel(div - 1, data->cmu + CMU_DIV_CLK_ABOX_UAIF(id));
++	return 0;
++}
++EXPORT_SYMBOL_GPL(abox_uaif_set_bclk);
++
+ static void abox_cpu_power(struct abox_data *data, bool on)
+ {
+ 	regmap_update_bits(data->pmu, PMU_ABOX_CA7_CONFIGURATION,
+diff --git a/sound/soc/samsung/abox/abox.h b/sound/soc/samsung/abox/abox.h
+index e9867ba95..3cc33d061 100644
+--- a/sound/soc/samsung/abox/abox.h
++++ b/sound/soc/samsung/abox/abox.h
+@@ -118,5 +118,7 @@ void *abox_iova_to_virt(struct abox_data *data, u32 iova);
+ int abox_pcm_register(struct abox_data *data);
+ void abox_uaif_clk_enable(struct abox_data *data, unsigned int id,
+ 			  bool external_bclk);
++int abox_uaif_set_bclk(struct abox_data *data, unsigned int id,
++		       unsigned long rate);
+ 
+ #endif /* __SND_SOC_SAMSUNG_ABOX_H */
+diff --git a/sound/soc/samsung/abox/abox_pcm.c b/sound/soc/samsung/abox/abox_pcm.c
+index 849dee3ce..86c5ad9c3 100644
+--- a/sound/soc/samsung/abox/abox_pcm.c
++++ b/sound/soc/samsung/abox/abox_pcm.c
+@@ -2,8 +2,9 @@
+ /*
+  * Samsung Exynos8895 ABOX: PCM streams and UAIF DAIs
+  *
+- * Playback goes through RDMA0 and the SPUS mixer (SIFS0) to a UAIF;
+- * capture comes from a UAIF through NSRC0 and the SPUM into WDMA0. The
++ * Playback goes through RDMA0 and the SPUS mixer (SIFS0) to a UAIF, except
++ * on the speaker amplifier's UAIF4, which gets its own RDMA1 straight to
++ * SIFS1; capture comes from a UAIF through NSRC0 and the SPUM into WDMA1. The
+  * firmware runs both DMAs: Linux hands it the buffer and the stream
+  * parameters over IPC, and reads the position back from the DMA status.
+  *
+@@ -32,7 +33,12 @@
+ /* SPUS_CTRL0: a 4-bit function chain per RDMA */
+ #define SPUS_CHAIN_SHIFT(x)	((x) * 4)
+ #define SPUS_CHAIN_ASRC		BIT(0)
++#define SPUS_CHAIN_OUT_SIFS1	(0 << 1)
+ #define SPUS_CHAIN_OUT_SIFS0	(1 << 1)
++/* SPUS_CTRL1: which RDMA chain feeds SIFS1 */
++#define SPUS_SIFS1_SEL		GENMASK(18, 16)
++/* SPUS_CTRL3 */
++#define SPUS_SIFS1_FLUSH	BIT(0)
+ 
+ /* SPUM_CTRL0: a 4-bit function chain per NSRC, from bit 4 */
+ #define SPUM_CHAIN_SHIFT(x)	(4 + (x) * 4)
+@@ -40,6 +46,7 @@
+ /* ROUTE_CTRL0: UAIFx speaker source; ROUTE_CTRL1: NSRCx source */
+ #define ROUTE_UAIF_SPK_SHIFT(x)	((x) * 4)
+ #define ROUTE_UAIF_SPK_SIFS0	1
++#define ROUTE_UAIF_SPK_SIFS1	2
+ #define ROUTE_NSRC_SHIFT(x)	((x) * 4)
+ #define ROUTE_NSRC_UAIF(x)	(8 + (x))
+ 
+@@ -60,7 +67,7 @@
+ /* RDMA/WDMA status */
+ #define DMA_STATUS_PROGRESS	BIT(31)
+ #define DMA_STATUS_RBUF_OFFSET	GENMASK(28, 16)	/* in 16-byte units */
+-#define DMA_STATUS_RBUF_CNT	GENMASK(12, 0)
++#define DMA_STATUS_RBUF_CNT	GENMASK(12, 0)	/* in 16-byte units too */
+ 
+ /*
+  * The mixer is set to the stream rate, so the rate converter isn't needed;
+@@ -74,6 +81,17 @@ MODULE_PARM_DESC(asrc, "Route RDMA0 through ASRC0");
+ #define CAP_NSRC		0
+ #define CAP_WDMA		1
+ 
++/* The speaker amplifier's UAIF, played through RDMA1 and SIFS1 */
++#define SPK_UAIF		4
++#define SPK_RDMA		1
++
++enum {
++	ABOX_DMA_PLAYBACK,
++	ABOX_DMA_CAPTURE,
++	ABOX_DMA_SPEAKER,
++	ABOX_DMA_NUM,
++};
++
+ struct abox_dma {
+ 	struct snd_pcm_substream *substream;
+ 	u32 id;			/* firmware channel id */
+@@ -88,7 +106,7 @@ struct abox_dma {
+ struct abox_pcm {
+ 	struct abox_data *abox;
+ 	unsigned long uaif_consumer;	/* bit per UAIF: BCLK comes from the pin */
+-	struct abox_dma dma[2];		/* indexed by stream direction */
++	struct abox_dma dma[ABOX_DMA_NUM];
+ };
+ 
+ static const struct snd_pcm_hardware abox_pcm_hardware = {
+@@ -125,7 +143,14 @@ static struct abox_pcm *dai_to_abox_pcm(struct snd_soc_dai *dai)
+ static struct abox_dma *to_dma(struct snd_soc_component *component,
+ 			       struct snd_pcm_substream *substream)
+ {
+-	return &to_abox_pcm(component)->dma[substream->stream];
++	struct abox_pcm *pcm = to_abox_pcm(component);
++	struct snd_soc_pcm_runtime *rtd = snd_soc_substream_to_rtd(substream);
++
++	if (substream->stream == SNDRV_PCM_STREAM_CAPTURE)
++		return &pcm->dma[ABOX_DMA_CAPTURE];
++	if (snd_soc_rtd_to_cpu(rtd, 0)->id == SPK_UAIF)
++		return &pcm->dma[ABOX_DMA_SPEAKER];
++	return &pcm->dma[ABOX_DMA_PLAYBACK];
+ }
+ 
+ static int abox_dma_ipc(struct abox_pcm *pcm, struct abox_dma *dma, u32 type,
+@@ -169,8 +194,10 @@ static void abox_pcm_irq(void *priv, unsigned int id,
+ 	struct snd_pcm_substream *substream;
+ 	int i;
+ 
++	/* Both RDMAs share the playback IPC id; the channel tells them apart. */
+ 	for (i = 0; i < ARRAY_SIZE(pcm->dma); i++) {
+-		if (msg ? msg->ipcid == pcm->dma[i].ipcid :
++		if (msg ? msg->ipcid == pcm->dma[i].ipcid &&
++			  msg->msg.pcmtask.channel_id == pcm->dma[i].id :
+ 			  id == pcm->dma[i].irq)
+ 			dma = &pcm->dma[i];
+ 	}
+@@ -178,8 +205,7 @@ static void abox_pcm_irq(void *priv, unsigned int id,
+ 		return;
+ 
+ 	if (msg) {
+-		if (msg->msg.pcmtask.msgtype != PCM_PLTDAI_POINTER ||
+-		    msg->msg.pcmtask.channel_id != dma->id)
++		if (msg->msg.pcmtask.msgtype != PCM_PLTDAI_POINTER)
+ 			return;
+ 		WRITE_ONCE(dma->pointer, msg->msg.pcmtask.param.pointer);
+ 	}
+@@ -344,7 +370,13 @@ static snd_pcm_uframes_t abox_pcm_pointer(struct snd_soc_component *component,
+ 			if ((buffer_bytes & offset) == offset)
+ 				offset = buffer_bytes;
+ 		}
+-		pos = offset + FIELD_GET(DMA_STATUS_RBUF_CNT, status);
++		/*
++		 * Downstream adds the count as bytes; measured against the
++		 * stream rate it counts 16-byte units like the offset.
++		 * Otherwise the position crawls and then jumps by a period,
++		 * and PulseAudio's timer scheduling underruns.
++		 */
++		pos = offset + (FIELD_GET(DMA_STATUS_RBUF_CNT, status) << 4);
+ 	}
+ 
+ 	if (pos < 0 || pos >= runtime->dma_bytes)
+@@ -425,10 +457,36 @@ static int abox_uaif_set_fmt(struct snd_soc_dai *dai, unsigned int fmt)
+ 	return 0;
+ }
+ 
++static void abox_route_speaker(struct abox_data *abox)
++{
++	u32 val;
++
++	/* RDMA1 -> SIFS1 -> UAIF4, no mixing: the amplifier paces it */
++	val = readl(abox->sfr + ABOX_SPUS_CTRL0);
++	val &= ~(0xf << SPUS_CHAIN_SHIFT(SPK_RDMA));
++	val |= SPUS_CHAIN_OUT_SIFS1 << SPUS_CHAIN_SHIFT(SPK_RDMA);
++	writel(val, abox->sfr + ABOX_SPUS_CTRL0);
++
++	val = readl(abox->sfr + ABOX_SPUS_CTRL1);
++	val &= ~SPUS_SIFS1_SEL;
++	val |= FIELD_PREP(SPUS_SIFS1_SEL, SPK_RDMA);
++	writel(val, abox->sfr + ABOX_SPUS_CTRL1);
++
++	val = readl(abox->sfr + ABOX_ROUTE_CTRL0);
++	val &= ~(0xf << ROUTE_UAIF_SPK_SHIFT(SPK_UAIF));
++	val |= ROUTE_UAIF_SPK_SIFS1 << ROUTE_UAIF_SPK_SHIFT(SPK_UAIF);
++	writel(val, abox->sfr + ABOX_ROUTE_CTRL0);
++
++	writel(SPUS_SIFS1_FLUSH, abox->sfr + ABOX_SPUS_CTRL3);
++}
++
+ static void abox_route_playback(struct abox_data *abox, unsigned int uaif)
+ {
+ 	u32 val;
+ 
++	if (uaif == SPK_UAIF)
++		return abox_route_speaker(abox);
++
+ 	/* RDMA0 -> (ASRC0) -> mixer (SIFS0) -> this UAIF */
+ 	val = readl(abox->sfr + ABOX_SPUS_CTRL0);
+ 	val &= ~(0xf << SPUS_CHAIN_SHIFT(0));
+@@ -509,17 +567,26 @@ static int abox_uaif_hw_params(struct snd_pcm_substream *substream,
+ 			 FIELD_PREP(UAIF_VALID_END, width - 1);
+ 	writel(ctrl1, abox->sfr + ABOX_UAIF_CTRL1(dai->id));
+ 
++	if (!test_bit(dai->id, &pcm->uaif_consumer)) {
++		ret = abox_uaif_set_bclk(abox, dai->id,
++					 params_rate(params) * channels * width);
++		if (ret)
++			return ret;
++	}
+ 	abox_uaif_clk_enable(abox, dai->id,
+ 			     test_bit(dai->id, &pcm->uaif_consumer));
+ 
+ 	if (playback) {
++		/* SIFS0 is the mixer, SIFS1 the speaker's direct output */
++		u32 rate_msg = dai->id == SPK_UAIF ? SET_OUT1_SAMPLE_RATE :
++						      SET_MIXER_SAMPLE_RATE;
++		u32 fmt_msg = dai->id == SPK_UAIF ? SET_OUT1_FORMAT :
++						     SET_MIXER_FORMAT;
++
+ 		abox_route_playback(abox, dai->id);
+-		/* The mixer runs at the UAIF rate. */
+-		ret = abox_config_ipc(abox, SET_MIXER_SAMPLE_RATE,
+-				      params_rate(params), 0);
++		ret = abox_config_ipc(abox, rate_msg, params_rate(params), 0);
+ 		if (!ret)
+-			ret = abox_config_ipc(abox, SET_MIXER_FORMAT, width,
+-					      channels);
++			ret = abox_config_ipc(abox, fmt_msg, width, channels);
+ 	} else {
+ 		abox_route_capture(abox, dai->id);
+ 		ret = abox_config_ipc(abox, SET_INMUX0_SAMPLE_RATE + CAP_NSRC,
+@@ -626,14 +693,22 @@ int abox_pcm_register(struct abox_data *abox)
+ 		return -ENOMEM;
+ 	pcm->abox = abox;
+ 
+-	pcm->dma[SNDRV_PCM_STREAM_PLAYBACK] = (struct abox_dma) {
++	pcm->dma[ABOX_DMA_PLAYBACK] = (struct abox_dma) {
+ 		.iova = 0x81000000,		/* RDMA0 buffer */
+ 		.status = ABOX_RDMA_STATUS(0),
+ 		.ctrl = ABOX_RDMA_CTRL0(0),
+ 		.ipcid = IPC_PCMPLAYBACK,
+ 		.irq = RDMA0_BUF_EMPTY,
+ 	};
+-	pcm->dma[SNDRV_PCM_STREAM_CAPTURE] = (struct abox_dma) {
++	pcm->dma[ABOX_DMA_SPEAKER] = (struct abox_dma) {
++		.id = SPK_RDMA,
++		.iova = 0x81000000 + SPK_RDMA * SZ_1M,	/* RDMA1 buffer */
++		.status = ABOX_RDMA_STATUS(SPK_RDMA),
++		.ctrl = ABOX_RDMA_CTRL0(SPK_RDMA),
++		.ipcid = IPC_PCMPLAYBACK,
++		.irq = RDMA0_BUF_EMPTY + SPK_RDMA,
++	};
++	pcm->dma[ABOX_DMA_CAPTURE] = (struct abox_dma) {
+ 		.id = CAP_WDMA,
+ 		.iova = 0x82000000 + CAP_WDMA * SZ_1M,	/* WDMAx buffer */
+ 		.status = ABOX_WDMA_STATUS(CAP_WDMA),
+-- 
+2.53.0
+
+
+From cac2d0e6f9c409abfdfa4ff40273530490b85511 Mon Sep 17 00:00:00 2001
+From: Athul <athulkrishnan97@users.noreply.github.com>
+Date: Fri, 9 Oct 2026 18:57:58 +0100
+Subject: [PATCH 2/4] ASoC: codecs: add Maxim MAX98506 speaker amplifier driver
+
+---
+ sound/soc/codecs/Kconfig    |   6 +
+ sound/soc/codecs/Makefile   |   2 +
+ sound/soc/codecs/max98506.c | 329 ++++++++++++++++++++++++++++++++++++
+ 3 files changed, 337 insertions(+)
+ create mode 100644 sound/soc/codecs/max98506.c
+
+diff --git a/sound/soc/codecs/Kconfig b/sound/soc/codecs/Kconfig
+index adb3fb923..1b5314237 100644
+--- a/sound/soc/codecs/Kconfig
++++ b/sound/soc/codecs/Kconfig
+@@ -146,6 +146,7 @@ config SND_SOC_ALL_CODECS
+ 	imply SND_SOC_MAX98357A
+ 	imply SND_SOC_MAX98371
+ 	imply SND_SOC_MAX98504
++	imply SND_SOC_MAX98506
+ 	imply SND_SOC_MAX98520
+ 	imply SND_SOC_MAX9867
+ 	imply SND_SOC_MAX98925
+@@ -1413,6 +1414,11 @@ config SND_SOC_MAX98504
+ 	tristate "Maxim MAX98504 speaker amplifier"
+ 	depends on I2C
+ 
++config SND_SOC_MAX98506
++	tristate "Maxim MAX98506 speaker amplifier"
++	depends on I2C
++	select REGMAP_I2C
++
+ config SND_SOC_MAX9867
+ 	tristate "Maxim MAX9867 CODEC"
+ 	depends on I2C
+diff --git a/sound/soc/codecs/Makefile b/sound/soc/codecs/Makefile
+index 3ddee5298..af3232561 100644
+--- a/sound/soc/codecs/Makefile
++++ b/sound/soc/codecs/Makefile
+@@ -425,6 +425,7 @@ snd-soc-zl38060-y := zl38060.o
+ # Amp
+ snd-soc-max9877-y := max9877.o
+ snd-soc-max98504-y := max98504.o
++snd-soc-max98506-y := max98506.o
+ snd-soc-simple-amplifier-y := simple-amplifier.o
+ snd-soc-tpa6130a2-y := tpa6130a2.o
+ snd-soc-tas2552-y := tas2552.o
+@@ -871,6 +872,7 @@ obj-$(CONFIG_SND_SOC_ZL38060)	+= snd-soc-zl38060.o
+ # Amp
+ obj-$(CONFIG_SND_SOC_MAX9877)	+= snd-soc-max9877.o
+ obj-$(CONFIG_SND_SOC_MAX98504)	+= snd-soc-max98504.o
++obj-$(CONFIG_SND_SOC_MAX98506)	+= snd-soc-max98506.o
+ obj-$(CONFIG_SND_SOC_SIMPLE_AMPLIFIER)	+= snd-soc-simple-amplifier.o
+ obj-$(CONFIG_SND_SOC_TPA6130A2)	+= snd-soc-tpa6130a2.o
+ obj-$(CONFIG_SND_SOC_LPASS_MACRO_COMMON)	+= snd-soc-lpass-macro-common.o
+diff --git a/sound/soc/codecs/max98506.c b/sound/soc/codecs/max98506.c
+new file mode 100644
+index 000000000..d91623376
+--- /dev/null
++++ b/sound/soc/codecs/max98506.c
+@@ -0,0 +1,329 @@
++// SPDX-License-Identifier: GPL-2.0-only
++/*
++ * Maxim MAX98506 mono class-D speaker amplifier with boost
++ *
++ * Plays I2S as a clock consumer, clocked from BCLK (no MCLK). The register
++ * setup follows the Samsung downstream driver (build 0.00.0010) and the
++ * values the Galaxy Note 8 device tree hands it; the speaker-protection
++ * (DSM) feedback path is not supported.
++ *
++ * Copyright (c) 2016 Maxim Integrated Products
++ */
++
++#include <linux/bitfield.h>
++#include <linux/delay.h>
++#include <linux/i2c.h>
++#include <linux/module.h>
++#include <linux/of.h>
++#include <linux/regmap.h>
++#include <sound/pcm.h>
++#include <sound/pcm_params.h>
++#include <sound/soc.h>
++#include <sound/tlv.h>
++
++#define MAX98506_DAI_CLK_MODE1		0x1a
++#define  MAX98506_DAI_CLK_SOURCE_BCLK	BIT(6)
++#define  MAX98506_MDLL_MULT		GENMASK(3, 0)
++#define  MAX98506_MDLL_MULT_MCLKx8	6
++#define MAX98506_DAI_CLK_MODE2		0x1b
++#define  MAX98506_DAI_SR		GENMASK(7, 4)
++#define  MAX98506_DAI_MAS		BIT(3)
++#define  MAX98506_DAI_BSEL		GENMASK(2, 0)
++#define MAX98506_DAI_CLK_DIV_N_LSBS	0x1f
++#define MAX98506_FORMAT			0x20
++#define  MAX98506_DAI_CHANSZ		GENMASK(7, 6)
++#define  MAX98506_DAI_WCI		BIT(3)
++#define  MAX98506_DAI_BCI		BIT(2)
++#define  MAX98506_DAI_DLY		BIT(1)
++#define MAX98506_TDM_SLOT_SELECT	0x21
++#define MAX98506_DOUT_HIZ_CFG1		0x27
++#define MAX98506_DOUT_HIZ_CFG2		0x28
++#define MAX98506_DOUT_HIZ_CFG3		0x29
++#define MAX98506_DOUT_HIZ_CFG4		0x2a
++#define MAX98506_FILTERS		0x2c
++#define MAX98506_GAIN			0x2d
++#define  MAX98506_DAC_IN_SEL		GENMASK(6, 5)
++#define  MAX98506_DAC_IN_SEL_DIV2_SUMMED 3
++#define  MAX98506_SPK_GAIN		GENMASK(4, 0)
++#define MAX98506_SPK_AMP		0x2f
++#define MAX98506_ALC_CONFIGURATION	0x34
++#define MAX98506_BOOST_CONVERTER	0x35
++#define  MAX98506_BST_SYNC		BIT(7)
++#define MAX98506_BLOCK_ENABLE		0x36
++#define  MAX98506_BST_EN		BIT(7)
++#define  MAX98506_SPK_EN		BIT(4)
++#define  MAX98506_ADC_VIMON_EN		GENMASK(1, 0)
++#define MAX98506_CONFIGURATION		0x37
++#define MAX98506_GLOBAL_ENABLE		0x38
++#define  MAX98506_EN			BIT(7)
++#define MAX98506_BOOST_LIMITER		0x3a
++#define MAX98506_VERSION		0xff
++
++/* Stock speaker gain, +13 dB; the device tree's registers-of-amp value */
++#define MAX98506_SPK_GAIN_DEFAULT	0x14
++
++struct max98506 {
++	struct regmap *regmap;
++};
++
++static const unsigned int max98506_rates[] = {
++	8000, 11025, 12000, 16000, 22050, 24000, 32000, 44100, 48000,
++};
++
++/* 1..31: -6 dB to +24 dB in 1 dB steps */
++static const DECLARE_TLV_DB_RANGE(max98506_spk_tlv,
++	1, 31, TLV_DB_SCALE_ITEM(-600, 100, 0),
++);
++
++static const struct snd_kcontrol_new max98506_controls[] = {
++	SOC_SINGLE_RANGE_TLV("Speaker Volume", MAX98506_GAIN, 0, 1, 31, 0,
++			     max98506_spk_tlv),
++};
++
++static const struct snd_soc_dapm_widget max98506_widgets[] = {
++	SND_SOC_DAPM_AIF_IN("DAI_IN", "HiFi Playback", 0, SND_SOC_NOPM, 0, 0),
++	SND_SOC_DAPM_OUTPUT("SPK"),
++};
++
++static const struct snd_soc_dapm_route max98506_routes[] = {
++	{ "SPK", NULL, "DAI_IN" },
++};
++
++static int max98506_set_fmt(struct snd_soc_dai *dai, unsigned int fmt)
++{
++	struct max98506 *amp = snd_soc_component_get_drvdata(dai->component);
++	unsigned int invert = 0;
++
++	/* Only BCLK-clocked consumer mode is wired up on the boards we know */
++	if ((fmt & SND_SOC_DAIFMT_CLOCK_PROVIDER_MASK) != SND_SOC_DAIFMT_CBC_CFC)
++		return -EINVAL;
++	if ((fmt & SND_SOC_DAIFMT_FORMAT_MASK) != SND_SOC_DAIFMT_I2S)
++		return -EINVAL;
++
++	switch (fmt & SND_SOC_DAIFMT_INV_MASK) {
++	case SND_SOC_DAIFMT_NB_NF:
++		break;
++	case SND_SOC_DAIFMT_NB_IF:
++		invert = MAX98506_DAI_WCI;
++		break;
++	case SND_SOC_DAIFMT_IB_NF:
++		invert = MAX98506_DAI_BCI;
++		break;
++	case SND_SOC_DAIFMT_IB_IF:
++		invert = MAX98506_DAI_BCI | MAX98506_DAI_WCI;
++		break;
++	default:
++		return -EINVAL;
++	}
++
++	regmap_update_bits(amp->regmap, MAX98506_DAI_CLK_MODE1,
++			   MAX98506_DAI_CLK_SOURCE_BCLK,
++			   MAX98506_DAI_CLK_SOURCE_BCLK);
++	regmap_update_bits(amp->regmap, MAX98506_DAI_CLK_MODE2,
++			   MAX98506_DAI_MAS, 0);
++	regmap_update_bits(amp->regmap, MAX98506_FORMAT,
++			   MAX98506_DAI_BCI | MAX98506_DAI_WCI | MAX98506_DAI_DLY,
++			   invert | MAX98506_DAI_DLY);
++	return 0;
++}
++
++static int max98506_hw_params(struct snd_pcm_substream *substream,
++			      struct snd_pcm_hw_params *params,
++			      struct snd_soc_dai *dai)
++{
++	struct max98506 *amp = snd_soc_component_get_drvdata(dai->component);
++	unsigned int rate = params_rate(params);
++	unsigned int bclks = params_channels(params) * params_width(params);
++	unsigned int chansz, bsel, sr;
++
++	switch (params_width(params)) {
++	case 16:
++		chansz = 1;
++		break;
++	case 24:
++		chansz = 2;
++		break;
++	case 32:
++		chansz = 3;
++		break;
++	default:
++		return -EINVAL;
++	}
++
++	switch (bclks) {
++	case 32:
++		bsel = 0;
++		break;
++	case 48:
++		bsel = 1;
++		break;
++	case 64:
++		bsel = 2;
++		break;
++	default:
++		return -EINVAL;
++	}
++
++	for (sr = 0; sr < ARRAY_SIZE(max98506_rates); sr++)
++		if (max98506_rates[sr] == rate)
++			break;
++	if (sr == ARRAY_SIZE(max98506_rates))
++		return -EINVAL;
++
++	regmap_update_bits(amp->regmap, MAX98506_FORMAT, MAX98506_DAI_CHANSZ,
++			   FIELD_PREP(MAX98506_DAI_CHANSZ, chansz));
++	regmap_update_bits(amp->regmap, MAX98506_DAI_CLK_MODE2,
++			   MAX98506_DAI_SR | MAX98506_DAI_BSEL,
++			   FIELD_PREP(MAX98506_DAI_SR, sr) |
++			   FIELD_PREP(MAX98506_DAI_BSEL, bsel));
++	regmap_update_bits(amp->regmap, MAX98506_DAI_CLK_MODE1,
++			   MAX98506_MDLL_MULT,
++			   FIELD_PREP(MAX98506_MDLL_MULT,
++				      MAX98506_MDLL_MULT_MCLKx8));
++	regmap_update_bits(amp->regmap, MAX98506_BOOST_CONVERTER,
++			   MAX98506_BST_SYNC,
++			   rate % 11025 ? 0 : MAX98506_BST_SYNC);
++	return 0;
++}
++
++/* As downstream: turn the amplifier on once the stream is running. */
++static int max98506_mute_stream(struct snd_soc_dai *dai, int mute, int stream)
++{
++	struct max98506 *amp = snd_soc_component_get_drvdata(dai->component);
++
++	if (stream != SNDRV_PCM_STREAM_PLAYBACK)
++		return 0;
++
++	if (mute) {
++		regmap_update_bits(amp->regmap, MAX98506_GLOBAL_ENABLE,
++				   MAX98506_EN, 0);
++		usleep_range(15000, 16000);
++		return 0;
++	}
++
++	regmap_update_bits(amp->regmap, MAX98506_BLOCK_ENABLE,
++			   MAX98506_SPK_EN | MAX98506_BST_EN | MAX98506_ADC_VIMON_EN,
++			   MAX98506_SPK_EN | MAX98506_BST_EN);
++	regmap_write(amp->regmap, MAX98506_GLOBAL_ENABLE, MAX98506_EN);
++	return 0;
++}
++
++static const struct snd_soc_dai_ops max98506_dai_ops = {
++	.set_fmt = max98506_set_fmt,
++	.hw_params = max98506_hw_params,
++	.mute_stream = max98506_mute_stream,
++	.no_capture_mute = 1,
++};
++
++static struct snd_soc_dai_driver max98506_dai = {
++	.name = "max98506-aif1",
++	.playback = {
++		.stream_name = "HiFi Playback",
++		.channels_min = 1,
++		.channels_max = 2,
++		.rates = SNDRV_PCM_RATE_8000_48000,
++		.formats = SNDRV_PCM_FMTBIT_S16_LE | SNDRV_PCM_FMTBIT_S24_LE |
++			   SNDRV_PCM_FMTBIT_S32_LE,
++	},
++	.ops = &max98506_dai_ops,
++};
++
++static int max98506_component_probe(struct snd_soc_component *component)
++{
++	struct max98506 *amp = snd_soc_component_get_drvdata(component);
++	struct regmap *map = amp->regmap;
++
++	regmap_write(map, MAX98506_GLOBAL_ENABLE, 0);
++	regmap_write(map, MAX98506_FORMAT, MAX98506_DAI_DLY);
++	regmap_write(map, MAX98506_DOUT_HIZ_CFG1, 0xff);
++	regmap_write(map, MAX98506_DOUT_HIZ_CFG2, 0xff);
++	regmap_write(map, MAX98506_DOUT_HIZ_CFG3, 0xff);
++	regmap_write(map, MAX98506_DOUT_HIZ_CFG4, 0xf0);
++	regmap_write(map, MAX98506_FILTERS, 0xd9);
++	regmap_write(map, MAX98506_ALC_CONFIGURATION, 0x12);
++	regmap_write(map, MAX98506_CONFIGURATION, 0x00);	/* boost 8.5 V */
++	regmap_write(map, MAX98506_BOOST_LIMITER, 0xf8);	/* no ALC mute */
++
++	/* Values the stock device tree applies on top (registers-of-amp) */
++	regmap_write(map, MAX98506_DAI_CLK_DIV_N_LSBS, 0x00);
++	regmap_write(map, MAX98506_TDM_SLOT_SELECT, 0xc0);
++	regmap_write(map, MAX98506_SPK_AMP, 0x00);
++
++	/* Mono speaker: play the average of both channels */
++	regmap_write(map, MAX98506_GAIN,
++		     FIELD_PREP(MAX98506_DAC_IN_SEL,
++				MAX98506_DAC_IN_SEL_DIV2_SUMMED) |
++		     MAX98506_SPK_GAIN_DEFAULT);
++	return 0;
++}
++
++static const struct snd_soc_component_driver max98506_component = {
++	.probe = max98506_component_probe,
++	.controls = max98506_controls,
++	.num_controls = ARRAY_SIZE(max98506_controls),
++	.dapm_widgets = max98506_widgets,
++	.num_dapm_widgets = ARRAY_SIZE(max98506_widgets),
++	.dapm_routes = max98506_routes,
++	.num_dapm_routes = ARRAY_SIZE(max98506_routes),
++	.endianness = 1,
++};
++
++static const struct regmap_config max98506_regmap = {
++	.reg_bits = 8,
++	.val_bits = 8,
++	.max_register = MAX98506_VERSION,
++	.cache_type = REGCACHE_NONE,
++};
++
++static int max98506_i2c_probe(struct i2c_client *i2c)
++{
++	struct device *dev = &i2c->dev;
++	struct max98506 *amp;
++	unsigned int version;
++	int ret;
++
++	amp = devm_kzalloc(dev, sizeof(*amp), GFP_KERNEL);
++	if (!amp)
++		return -ENOMEM;
++
++	amp->regmap = devm_regmap_init_i2c(i2c, &max98506_regmap);
++	if (IS_ERR(amp->regmap))
++		return PTR_ERR(amp->regmap);
++
++	ret = regmap_read(amp->regmap, MAX98506_VERSION, &version);
++	if (ret)
++		return dev_err_probe(dev, ret, "failed to read version\n");
++	if (version != 0x40 && version != 0x50 && version != 0x80)
++		return dev_err_probe(dev, -ENODEV, "unknown version %#x\n",
++				     version);
++	dev_dbg(dev, "MAX98506 version %#x\n", version);
++
++	i2c_set_clientdata(i2c, amp);
++	return devm_snd_soc_register_component(dev, &max98506_component,
++					       &max98506_dai, 1);
++}
++
++static const struct of_device_id max98506_of_match[] = {
++	{ .compatible = "maxim,max98506" },
++	{ }
++};
++MODULE_DEVICE_TABLE(of, max98506_of_match);
++
++static const struct i2c_device_id max98506_i2c_id[] = {
++	{ "max98506" },
++	{ }
++};
++MODULE_DEVICE_TABLE(i2c, max98506_i2c_id);
++
++static struct i2c_driver max98506_driver = {
++	.driver = {
++		.name = "max98506",
++		.of_match_table = max98506_of_match,
++	},
++	.probe = max98506_i2c_probe,
++	.id_table = max98506_i2c_id,
++};
++module_i2c_driver(max98506_driver);
++
++MODULE_DESCRIPTION("Maxim MAX98506 speaker amplifier driver");
++MODULE_LICENSE("GPL");
+-- 
+2.53.0
+
+
+From 8c2b80325c8f180c0bdbe6a0d6377ea6c721c075 Mon Sep 17 00:00:00 2001
+From: Athul <athulkrishnan97@users.noreply.github.com>
+Date: Fri, 9 Oct 2026 18:57:58 +0100
+Subject: [PATCH 3/4] ASoC: samsung: exynos8895-madera: add the speaker
+ amplifier link
+
+---
+ sound/soc/samsung/exynos8895_madera.c | 107 +++++++++++++++++++++-----
+ 1 file changed, 88 insertions(+), 19 deletions(-)
+
+diff --git a/sound/soc/samsung/exynos8895_madera.c b/sound/soc/samsung/exynos8895_madera.c
+index 1de7f372a..610ec1fe7 100644
+--- a/sound/soc/samsung/exynos8895_madera.c
++++ b/sound/soc/samsung/exynos8895_madera.c
+@@ -7,6 +7,9 @@
+  * (HPOUT2) and the earpiece (HPOUT3/4). The codec is the I2S clock
+  * provider: as provider, ABOX's UAIF puts no bit clock on the pins. The
+  * codec's FLL1 runs from the 26 MHz TCXO clock (PMU CLKOUT0) on MCLK1.
++ *
++ * The bottom speaker sits behind a MAX98506 amplifier on ABOX UAIF4, which
++ * drives that bus's clocks itself (pins gph3-0..3).
+  */
+ 
+ #include <linux/clk.h>
+@@ -113,12 +116,32 @@ static const struct snd_soc_ops exynos8895_madera_ops = {
+ 	.hw_params = exynos8895_madera_hw_params,
+ };
+ 
++/* UAIF4's bit clock is divided from 49.152 MHz: 48 kHz only. */
++static int exynos8895_speaker_startup(struct snd_pcm_substream *substream)
++{
++	return snd_pcm_hw_constraint_single(substream->runtime,
++					    SNDRV_PCM_HW_PARAM_RATE, 48000);
++}
++
++static const struct snd_soc_ops exynos8895_speaker_ops = {
++	.startup = exynos8895_speaker_startup,
++};
++
+ /*
+  * The output volumes go up to +31.5 dB, which clips full-scale audio; the
+  * earpiece distorts above about -6 dB (0.5 dB steps, 128 = 0 dB).
+  */
+ #define EARPIECE_VOLUME_MAX	116
+ #define HEADPHONE_VOLUME_MAX	128
++/*
++ * There is no speaker protection (Samsung runs it on the ABOX DSP), so keep
++ * the amplifier at or below its stock +13 dB (19 steps above -6 dB).
++ */
++#define SPEAKER_VOLUME_MAX	19
++
++static const struct snd_soc_dapm_route exynos8895_speaker_routes[] = {
++	{ "Speaker", NULL, "SPK" },
++};
+ 
+ static int exynos8895_madera_late_probe(struct snd_soc_card *card)
+ {
+@@ -128,13 +151,23 @@ static int exynos8895_madera_late_probe(struct snd_soc_card *card)
+ 				   EARPIECE_VOLUME_MAX);
+ 	if (ret)
+ 		return ret;
+-	return snd_soc_limit_volume(card, "HPOUT2 Digital Volume",
+-				    HEADPHONE_VOLUME_MAX);
++	ret = snd_soc_limit_volume(card, "HPOUT2 Digital Volume",
++				   HEADPHONE_VOLUME_MAX);
++	if (ret || card->num_links < 2)
++		return ret;
++
++	ret = snd_soc_dapm_add_routes(snd_soc_card_to_dapm(card),
++				      exynos8895_speaker_routes,
++				      ARRAY_SIZE(exynos8895_speaker_routes));
++	if (ret)
++		return ret;
++	return snd_soc_limit_volume(card, "Speaker Volume", SPEAKER_VOLUME_MAX);
+ }
+ 
+ static const struct snd_soc_dapm_widget exynos8895_madera_widgets[] = {
+ 	SND_SOC_DAPM_HP("Headphone", NULL),
+ 	SND_SOC_DAPM_SPK("Earpiece", NULL),
++	SND_SOC_DAPM_SPK("Speaker", NULL),
+ };
+ 
+ static const struct snd_soc_dapm_route exynos8895_madera_routes[] = {
+@@ -146,9 +179,11 @@ static const struct snd_soc_dapm_route exynos8895_madera_routes[] = {
+ 	{ "Earpiece", NULL, "HPOUT4R" },
+ };
+ 
++
+ static const struct snd_kcontrol_new exynos8895_madera_controls[] = {
+ 	SOC_DAPM_PIN_SWITCH("Headphone"),
+ 	SOC_DAPM_PIN_SWITCH("Earpiece"),
++	SOC_DAPM_PIN_SWITCH("Speaker"),
+ };
+ 
+ SND_SOC_DAILINK_DEFS(codec,
+@@ -156,6 +191,11 @@ SND_SOC_DAILINK_DEFS(codec,
+ 	DAILINK_COMP_ARRAY(COMP_EMPTY()),
+ 	DAILINK_COMP_ARRAY(COMP_EMPTY()));
+ 
++SND_SOC_DAILINK_DEFS(speaker,
++	DAILINK_COMP_ARRAY(COMP_EMPTY()),
++	DAILINK_COMP_ARRAY(COMP_EMPTY()),
++	DAILINK_COMP_ARRAY(COMP_EMPTY()));
++
+ static struct snd_soc_dai_link exynos8895_madera_links[] = {
+ 	{
+ 		.name = "Codec",
+@@ -165,6 +205,15 @@ static struct snd_soc_dai_link exynos8895_madera_links[] = {
+ 		.ops = &exynos8895_madera_ops,
+ 		SND_SOC_DAILINK_REG(codec),
+ 	},
++	{
++		.name = "Speaker",
++		.stream_name = "Speaker",
++		.dai_fmt = SND_SOC_DAIFMT_I2S | SND_SOC_DAIFMT_NB_NF |
++			   SND_SOC_DAIFMT_CBC_CFC,
++		.ops = &exynos8895_speaker_ops,
++		.playback_only = 1,
++		SND_SOC_DAILINK_REG(speaker),
++	},
+ };
+ 
+ static struct snd_soc_card exynos8895_madera_card = {
+@@ -181,13 +230,32 @@ static struct snd_soc_card exynos8895_madera_card = {
+ 	.late_probe = exynos8895_madera_late_probe,
+ };
+ 
++static int exynos8895_parse_dai(struct device *dev, const char *prop,
++				struct snd_soc_dai_link_component *dlc)
++{
++	struct of_phandle_args args;
++	int ret;
++
++	ret = of_parse_phandle_with_args(dev->of_node, prop,
++					 "#sound-dai-cells", 0, &args);
++	if (ret)
++		return ret;
++	dlc->of_node = args.np;
++	ret = snd_soc_get_dai_name(&args, &dlc->dai_name);
++	if (ret) {
++		of_node_put(args.np);
++		return dev_err_probe(dev, ret, "%s not ready\n", prop);
++	}
++	return 0;
++}
++
+ static int exynos8895_madera_probe(struct platform_device *pdev)
+ {
+ 	struct device *dev = &pdev->dev;
+ 	struct snd_soc_card *card = &exynos8895_madera_card;
+ 	struct snd_soc_dai_link *link = &exynos8895_madera_links[0];
++	struct snd_soc_dai_link *spk = &exynos8895_madera_links[1];
+ 	struct exynos8895_madera *priv;
+-	struct of_phandle_args args;
+ 	int ret;
+ 
+ 	priv = devm_kzalloc(dev, sizeof(*priv), GFP_KERNEL);
+@@ -205,27 +273,28 @@ static int exynos8895_madera_probe(struct platform_device *pdev)
+ 	if (ret)
+ 		return ret;
+ 
+-	ret = of_parse_phandle_with_args(dev->of_node, "samsung,cpu-dai",
+-					 "#sound-dai-cells", 0, &args);
++	ret = exynos8895_parse_dai(dev, "samsung,cpu-dai", link->cpus);
+ 	if (ret)
+ 		return dev_err_probe(dev, ret, "no samsung,cpu-dai\n");
+-	link->cpus->of_node = args.np;
+-	ret = snd_soc_get_dai_name(&args, &link->cpus->dai_name);
+-	if (ret) {
+-		of_node_put(args.np);
+-		return dev_err_probe(dev, ret, "cpu dai not ready\n");
+-	}
+-	link->platforms->of_node = args.np;
++	link->platforms->of_node = link->cpus->of_node;
+ 
+-	ret = of_parse_phandle_with_args(dev->of_node, "samsung,codec-dai",
+-					 "#sound-dai-cells", 0, &args);
++	ret = exynos8895_parse_dai(dev, "samsung,codec-dai", link->codecs);
+ 	if (ret)
+ 		return dev_err_probe(dev, ret, "no samsung,codec-dai\n");
+-	link->codecs->of_node = args.np;
+-	ret = snd_soc_get_dai_name(&args, &link->codecs->dai_name);
+-	if (ret) {
+-		of_node_put(args.np);
+-		return dev_err_probe(dev, ret, "codec dai not ready\n");
++
++	/* The speaker amplifier link is optional. */
++	card->num_links = 1;
++	ret = exynos8895_parse_dai(dev, "samsung,speaker-cpu-dai", spk->cpus);
++	if (ret == -EPROBE_DEFER)
++		return ret;
++	if (!ret) {
++		spk->platforms->of_node = spk->cpus->of_node;
++		ret = exynos8895_parse_dai(dev, "samsung,speaker-codec-dai",
++					   spk->codecs);
++		if (ret)
++			return dev_err_probe(dev, ret,
++					     "no samsung,speaker-codec-dai\n");
++		card->num_links = 2;
+ 	}
+ 
+ 	return devm_snd_soc_register_card(dev, card);
+-- 
+2.53.0
+
+
+From 9cea2cd62eb4d2bbea77dce4aee84ffd4e0ad45b Mon Sep 17 00:00:00 2001
+From: Athul <athulkrishnan97@users.noreply.github.com>
+Date: Fri, 9 Oct 2026 18:57:58 +0100
+Subject: [PATCH 4/4] arm64: dts: exynos8895-greatlte: speaker amplifier
+
+The MAX98506 sits on hsi2c_11 and plays from ABOX UAIF4, whose pins are
+gph3-0..3 ("aud-cdma-bus" downstream); they need muxing too.
+---
+ .../boot/dts/exynos/exynos8895-greatlte.dts    | 18 +++++++++++++++++-
+ 1 file changed, 17 insertions(+), 1 deletion(-)
+
+diff --git a/arch/arm64/boot/dts/exynos/exynos8895-greatlte.dts b/arch/arm64/boot/dts/exynos/exynos8895-greatlte.dts
+index f9ff4fb9b..6ff3c0054 100644
+--- a/arch/arm64/boot/dts/exynos/exynos8895-greatlte.dts
++++ b/arch/arm64/boot/dts/exynos/exynos8895-greatlte.dts
+@@ -566,7 +566,8 @@ abox: audio-controller@13e50000 {
+ 		memory-region = <&abox_mem>;
+ 		samsung,pmu-syscon = <&pmu_system_controller>;
+ 		pinctrl-names = "default";
+-		pinctrl-0 = <&aud_codec_mclk &aud_codec_bus &aud_spk_bus>;
++		pinctrl-0 = <&aud_codec_mclk &aud_codec_bus &aud_spk_bus
++			     &aud_amp_bus>;
+ 		#sound-dai-cells = <1>;
+ 	};
+ };
+@@ -589,6 +590,13 @@ aud_spk_bus: aud-spk-bus-pins {
+ 		samsung,pin-function = <EXYNOS_PIN_FUNC_2>;
+ 		samsung,pin-pud = <EXYNOS_PIN_PULL_DOWN>;
+ 	};
++
++	/* UAIF4 to the MAX98506 speaker amplifier ("aud-cdma-bus" downstream) */
++	aud_amp_bus: aud-amp-bus-pins {
++		samsung,pins = "gph3-0", "gph3-1", "gph3-2", "gph3-3";
++		samsung,pin-function = <EXYNOS_PIN_FUNC_2>;
++		samsung,pin-pud = <EXYNOS_PIN_PULL_DOWN>;
++	};
+ };
+ 
+ / {
+@@ -597,6 +605,8 @@ sound {
+ 		model = "Galaxy Note8";
+ 		samsung,cpu-dai = <&abox 0>;
+ 		samsung,codec-dai = <&cs47l93 0>;
++		samsung,speaker-cpu-dai = <&abox 4>;
++		samsung,speaker-codec-dai = <&speaker_amp>;
+ 		clocks = <&pmu_system_controller 0>;
+ 		clock-names = "mclk";
+ 		/* CLKOUT0 source 1 is the 26 MHz TCXO (downstream OSCCLK_AUD) */
+@@ -621,4 +631,10 @@ &hsi2c_11 {
+ 	#address-cells = <1>;
+ 	#size-cells = <0>;
+ 	status = "okay";
++
++	speaker_amp: amplifier@31 {
++		compatible = "maxim,max98506";
++		reg = <0x31>;
++		#sound-dai-cells = <0>;
++	};
+ };
+-- 
+2.53.0
+
