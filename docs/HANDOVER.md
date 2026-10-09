@@ -533,3 +533,27 @@ usb* only. `adb connect 172.16.42.1:5555`. push/pull ~2 MB/s (scp ~30). Committe
 - Open: 5 GHz WiFi boot freeze, microphones, jack detection, speaker DSM protection,
   GPU DVFS, TMU hardware trip, per-chip ASV selection at boot (voltages are hard-coded
   for one chip), release images not refreshed since r10.
+
+## UPDATE 2026-10-09 evening (Claude, cloud session, no phone access): MODEM / RIL START
+Plan: docs/RIL-PLAN.md. Test sequence for the phone: docs/RIL-BRINGUP.md.
+- Hardware (stock modem-ss355ap-pdata.dtsi): Shannon 355 CP on the SoC, shared memory
+  in modem_if (0xF4C00000, 144 MiB: CP 122M | VSS 6M | IPC 5M @+0x8000000 | ZMB 11M),
+  mailbox mcu_ipc@15B40000 SPI 97, CP IRQs SPI 21 (cp_fail) / 57 (cp_wdt), CP secure
+  boot: CP_CTRL via SMC 0x82000700 (READ_CTRL 3 / WRITE_CTRL 4), image check via
+  IOCTL_SECURITY_REQ -> SMC 0x82000700 mode/size_boot/size_main (SSS clock SMC 0x82001011).
+- Kernel: Samsung modem_v1 + mcu_ipc + shm_ipc + pmu-cp ported to 7.0 as
+  drivers/misc/modem_v1 (vendor code reuse approved by the user). Compat shims in
+  include/mif_compat.h (wakelocks -> wakeup sources, exynos_smc -> arm_smccc_smc,
+  exynos_pmu_read/write -> PMU regmap, PM QoS -> logged no-op). Vendor panics on CP
+  sequencing timeouts / IOCTL_MODEM_CP_UPLOAD replaced by WARN/log. modem_if is no longer
+  no-map (stock layout: driver uses phys_to_virt on the ZMB pool), still reserved.
+  bufpool_2nd (stock 0xE9000000) set to 0: overlaps abox/video carveouts.
+- Userspace: run Samsung's own cbd from the phone's SYSTEM partition in a chroot
+  (tools/modem/android-env.sh, rootfs-addons/etc-init.d/cbd); tools/modem/mifmon.c holds
+  umts_ipc0 + umts_rfs0 open (kernel sends INIT_END only then) and decodes IPC/RFS frames;
+  -a sends AT on umts_router (decides ModemManager-over-AT vs a Samsung IPC daemon).
+  smcprobe.ko is the first test (SMC go/no-go). RFS is a file protocol (RFS_OPEN_FILE,
+  READ, WRITE, LSEEK, ...; libsec-ril class IpcProtocol41Rfs) - needs answering next.
+- Reference blobs: github.com/exynos8895/android_vendor_samsung_universal8895-common
+  (lineage-18.1): vendor/bin/cbd, lib64/libsec-ril.so. cbd args from init.baseband.rc:
+  cbd -d -tss310 -bm -mm -P platform/11120000.ufs/by-name/RADIO -n /efs

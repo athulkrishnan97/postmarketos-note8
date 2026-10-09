@@ -1,0 +1,30 @@
+#!/sbin/openrc-run
+# CP (Shannon modem) boot: runs Samsung's cbd from the phone's own SYSTEM
+# partition inside a minimal Android environment (tools/modem/android-env.sh,
+# installed as /usr/local/bin/android-env). cbd loads modem.bin from RADIO and
+# nv_data.bin from EFS into the CP shared memory, issues the secure-boot
+# request and starts the CP, then stays around to handle CP crashes.
+
+description="Samsung CP boot daemon (cbd)"
+
+command=/usr/local/bin/android-env
+cbd_args="-d -tss310 -bm -mm -P platform/11120000.ufs/by-name/RADIO -n /efs"
+command_args="run /vendor/bin/cbd $cbd_args"
+supervisor=supervise-daemon
+output_log=/var/log/cbd.log
+error_log=/var/log/cbd.log
+
+depend() {
+	need localmount
+	before modem-ipc
+}
+
+start_pre() {
+	[ -c /dev/umts_boot0 ] || { eerror "no /dev/umts_boot0 (modem driver not loaded)"; return 1; }
+	/usr/local/bin/android-env up || return 1
+	# LineageOS keeps cbd in /vendor/bin, stock Samsung firmware in /system/bin
+	root=${ROOT:-/var/lib/android-modem}
+	if [ ! -x "$root/vendor/bin/cbd" ] && [ -x "$root/system/bin/cbd" ]; then
+		command_args="run /system/bin/cbd $cbd_args"
+	fi
+}

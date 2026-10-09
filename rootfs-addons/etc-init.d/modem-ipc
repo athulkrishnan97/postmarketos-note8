@@ -1,0 +1,16 @@
+#!/sbin/openrc-run
+# Modem bring-up placeholder for the RIL: holds /dev/umts_ipc0 and
+# /dev/umts_rfs0 open (the kernel only completes the CP handshake with
+# CMD_INIT_END while both are open) and logs every IPC/RFS frame to
+# /var/log/mifmon.log. Replaced by a real RIL once one exists.
+
+description="Shannon CP IPC monitor (mifmon)"
+
+command=/usr/local/bin/mifmon
+supervisor=supervise-daemon
+output_log=/var/log/mifmon.log
+error_log=/var/log/mifmon.log
+
+depend() {
+	after cbd
+}

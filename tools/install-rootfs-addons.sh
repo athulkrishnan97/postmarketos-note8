@@ -70,4 +70,10 @@ install -D -m 755 "$ADDONS/usr-local-bin/usb-mode" "$MNT/usr/local/bin/usb-mode"
 install -D -m 644 "$ADDONS/etc-xdg-plasma-workspace-env/glyphcache-workaround.sh" \
 	"$MNT/etc/xdg/plasma-workspace/env/glyphcache-workaround.sh"
 
+# Modem (Shannon CP) bring-up: Samsung's cbd run from the phone's SYSTEM
+# partition, and the IPC monitor. Installed but NOT enabled: see
+# docs/RIL-BRINGUP.md for the test sequence (back up EFS first).
+install -m 755 "$ADDONS/etc-init.d/cbd" "$ADDONS/etc-init.d/modem-ipc" "$MNT/etc/init.d/"
+install -D -m 755 "$ADDONS/../tools/modem/android-env.sh" "$MNT/usr/local/bin/android-env"
+
 echo "addons installed into $IMG"
