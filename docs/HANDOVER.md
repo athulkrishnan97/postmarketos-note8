@@ -1,0 +1,535 @@
+# Samsung Galaxy Note 8 (greatlte, SM-N950F, Exynos 8895) — postmarketOS Native Display Bring-up
+# Agent handoff summary — written 2026-10-05 after ~30 kernel iterations
+# Phone runs postmarketOS from SD card; kernel flashed to BOOT partition via heimdall.
+
+## GOAL
+Native mainline display: DECON_f → DSI (DSIM0) → S6E3HA6 AMOLED panel, with VESA DSC
+(2 encoders, 2 slices of 720×40, 8bpp). End goal: usable desktop (Plasma) on the panel.
+
+## WHAT WORKS (verified)
+- Boot to postmarketOS userspace, SSH over Wi-Fi at 192.168.1.175 (sometimes .187), ~2 min after flash.
+- S2DOS03 panel PMIC (hsi2c@10860000/i2c@10000, addr 0x60): vdd_ddi_1p8/3p0/1p6 rails.
+- DSIM0 host probe + S6E3HA6 panel probe: panel ID 817143 (a2 variant) reads reliably.
+- DECON DRM/KMS driver registers: /dev/dri/card0, connector DSI-1, mode 1440x2960@60.
+  card1 = panfrost (Mali-G71, GL ES 3.1 works).
+- Full atomic modeset from userspace runs cleanly (modetest, weston with pixman):
+  bridge pre_enable → panel init → CRTC enable → DSIM DSC handoff → display-on →
+  frame-done interrupts tick continuously (~60/s while compositing).
+- IDMA fetches the real framebuffer: verified BASE_Y=0x98200000 in the DMA registers,
+  DMA completes with no error flags, data path end-to-end confirmed (panel pattern
+  changes with framebuffer content).
+- Wi-Fi, SSH, bt-pan script, everything else from earlier bring-up stages.
+
+## WHAT DOES NOT WORK (the current problem)
+The panel shows structured noise instead of the image. Verified facts about the noise:
+- Responds to framebuffer content (red bg → purple noise) but never legible.
+- Slice structure visible: seam at the slice boundary (720px), line/band structure.
+- DCS reads work (0x0A = 0x9C; booster on, BGR bit set, row/col exchange set).
+- DCS writes complete (ret 0) but display-affecting commands (0x22 all-pixel-off,
+  0x29 display-on, 0x11 sleep-out) have NO visual effect on the noise.
+- DSIM BIST (0x94) also showed the same noise (may be inconclusive: BIST in command
+  mode may not transmit without trigger).
+- Full downstream DDI init (DSC enable 0x9D 0x01 + 128B PPS, DSU scaler 0xBA,
+  CASET/PASET, omok latches, TE) applied in probe/prepare — noise persists.
+- 0x09 0x01 "DSC PRA" packet experiment: pattern changed slightly (only experiment
+  that visibly changed anything besides content).
+
+## ROOT-CAUSE BUGS FOUND AND FIXED THIS SESSION (in order)
+1. fbdev NULL plane->state crash: missing drm_mode_config_reset() → fbdev modeset
+   oopsed in drm_atomic_helper_plane_duplicate_state. Fix: reset before register.
+   (Diagnosed via pstore dmesg record — see "pstore" below.)
+2. Hard freeze right after fbdev probe: fbcon takeover holds console_lock while the
+   first commit runs inside it; any stall = silent freeze + userspace blocks on
+   /dev/console. Worked around by CONFIG_DRM_FBDEV_EMULATION=n (fbdev/fbcon gone;
+   console stays on ramoops/serial). Note: for a final product you'd re-enable
+   fbdev AFTER the pipeline is proven, or use deferred takeover.
+3. "nobody cared" IRQ storms: bootloader leaves DSIM+DECON running; stale pending
+   interrupts at request_irq → kernel disables the line → RX-driven panel ID reads
+   randomly failed (-110). Fix: mask+clear all interrupt sources before request_irq;
+   handlers claim+clear pending even when !powered.
+4. Panel probe failed (-110) whenever a stale DSIM IRQ fired early → flaky boots.
+   Same fix.
+5. THE BIG ONE: IDMA fetch registers must be written to the DMA bank 0x128B1000,
+   NOT the DPP bank 0x12851000. Downstream writes IDMA_* via dma_write (0x128B1000);
+   we wrote the DPP bank. The real fetch DMA kept the BOOTLOADER's config
+   (BASE_Y=0xCC000000 = old LineageOS framebuffer) → panel showed frozen stale
+   garbage forever. Symptom: 100% content-independent noise, immune to all commands.
+   Fix: DT reg "idma" = <0x128b1000 0x1000> + program DPU_DMA_CH_MAP (G0→ch1).
+   After this, noise became content-responsive (purple for red bg). See v99.
+6. GEM PRIME export: get_sg_table added → dma-buf export works.
+7. panfrost GPU import of scanout buffers: failed with swiotlb bounce ("swiotlb
+   buffer is full, sz 17MB"). Cause: CMA placed at 0xf8000000 (3.87–4.0GB) and
+   panfrost has a 32-bit DMA mask with NO IOMMU → buffer crossing 4GB unmappable.
+   Fix: bootargs cma=128M@0x80000000-0xa0000000. (kmscube still crashes in
+   gbm_bo_get_device — the EIO import path needs further work; weston+pixman is
+   the reference client and works.)
+
+## CURRENT KERNEL STATE (v101, branch display-bringup in /tmp/kernel-patchwork)
+Key commits on top of base (b6a8f5cf5):
+- DSIM host driver: drivers/gpu/drm/bridge/exynos8895-dsim.c (+ .h)
+- DECON KMS driver: drivers/gpu/drm/bridge/exynos8895-decon.c + regs-exynos8895-decon.h
+- Panel: drivers/gpu/drm/panel/panel-samsung-s6e3ha6.c
+- DT: arch/arm64/boot/dts/exynos/exynos8895.dtsi (decon_f node, dsim0 node),
+  exynos8895-greatlte.dts (bootargs), exynos8895-pinctrl.dtsi (TE pin gpb0-1)
+Bootargs: "fbcon=font:TER16x32 fbcon=defer softlockup_panic=1 hung_task_panic=1
+panic=5 cma=128M@0x80000000-0xa0000000"
+Config notes: CONFIG_DRM_EXYNOS8895_DECON=y, CONFIG_DRM_FBDEV_EMULATION=n,
+CONFIG_STRICT_DEVMEM=n, CONFIG_SOFTLOCKUP_DETECTOR=y, CONFIG_PSTORE_* + ramoops.
+
+Verified-correct register configuration (read live during streaming, matches
+downstream Samsung dpu source at /home/athul/postmarketos/reference/android_kernel_samsung_universal8895):
+- DSIM: CONFIG=0x048801ff (CPRS_EN, 4 lanes, EOTP, cmd mode), RESOL=0x0b9001e0
+  (2960|480), CPRS_CTRL=0xa (2 slices, multi-slice packet), SLICE01=0x02d002d0,
+  THRESHOLD=480, NUM_OF_TRANSFER=2960, PHY timings = downstream table row 890/900
+  (PMS 5/691/2 = 898Mbps @ 26MHz ref).
+- DECON: GLOBAL=0x133 running, DPC2=0x0b1 (DSCC→2 encoders→FF0/1→formatter→DSIM0),
+  splitter/FF/formatter sized in compressed units (240 per encoder, 480 merged),
+  DSC encoders at +0x4000/+0x5000: CONTROL0=0xf022a (DCG all, BYTE_SWAP, flatness 2,
+  slice_mode_ch 1, CG_EN; dual-slice off), PPS = panel table except
+  initial_dec_delay=0x01B4 hardcoded (downstream non-VESA build).
+- PPS table (both DDI and encoder): 8bpc, 8.0bpp, 1440x2960, slice 720x40,
+  chunk 720, xmit_delay 0x200, dec_delay 0x268 (DDI table) / 0x1B4 (encoder),
+  RC model 8192, final_offset 0x10F0. Encoder pic_width=720 (half raster).
+- Panel PPS table (s6e3ha6_great_a2_s3_panel.h "DSU MODE 1") matches the computed
+  downstream dsc_calc_pps_info values exactly (except dec_delay).
+- RAM layout: banks at 0x80000000, 0xc0000000 (1GB each), 0x880000000 (4GB).
+  CMA must stay under 4GB (GPU has 32-bit mask, no SMMU in DT).
+
+## DOWNSTREAM REFERENCE (read this code!)
+/home/athul/postmarketos/reference/android_kernel_samsung_universal8895
+- DPU: drivers/video/fbdev/exynos/dpu/ (decon_reg.c, dsim_reg.c, dpp_reg.c, regs-*.h)
+- Panel: drivers/video/fbdev/exynos/panel/s6e3ha6/s6e3ha6_great_a2_s3_panel.h
+  (init_cmdtbl order, PPS tables, keys: KEY1=0x9F A5A5/5A5A, KEY2=0xF0, KEY3=0xFC)
+- Panel DT data: exynos8895-display-lcd.dtsi (s6e3ha6_great_ddi: hs-clk 898,
+  pms 5/691/2, dsc_cnt 2, slice 2, slice_h 40)
+- Mainline reference tree: /home/athul/postmarketos/reference/mainline and kernel-7.0-rc1
+
+## DEBUGGING SCAFFOLDING (all in /home/athul/postmarketos/)
+- work/reboot-download: static helper; `sudo /tmp/reboot-download` from the phone
+  reboots into download mode. MUST re-copy to /tmp after every boot (/tmp is wiped).
+- work/devmem: static busybox-style devmem. USAGE: `/tmp/devmem <addr>` READS.
+  `/tmp/devmem <addr> <value>` WRITES. (Earlier sessions accidentally CORRUPTED
+  CMU registers by treating the width arg as value — beware.) Key addresses:
+  DECON 0x12860000, DSIM 0x12870000, DPU0 CMU 0x12800000, IDMA DMA bank 0x128B1000,
+  DPU_DMA common 0x128B0000 (CH_MAP +0x04, GLB_CGEN +0x14, GLB_CONTROL +0x40),
+  PMU syscon 0x16480000 (DPU0 cfg/status +0x4060/+0x4064, DPU1 +0x4080/+0x4084),
+  DSC encoders 0x12864000/0x12865000.
+- work/inspect-disp.sh: register dump script (push devmem to /tmp first).
+- work/boot-vNN.img: every kernel build (v82..v101). v99/v100/v101 = current era.
+  Last known "good boot + working KMS" = v101 (this session).
+- /tmp/paneldbg/paneldbg.c + paneldbg.ko: OUT-OF-TREE DEBUG MODULE. insmod on the
+  phone, then via /sys/module/paneldbg/parameters/:
+    dcsread  "<cmd_hex>,<len>"   e.g. echo 0a,1 > .../dcsread   (DCS read)
+    dcswrite "<cmd_hex>,<p1>,<p2>,..."  up to 32 params         (DCS write)
+    pps      1|0   (send 0x9D 0x01/0x00 + full 128B PPS table)
+    rawtx    "<dsi_type_hex>,<d0>,<d1>"  raw DSI short packet (e.g. 09,01)
+  Built: cd /tmp/paneldbg && make -C /tmp/kernel-patchwork ARCH=arm64 LLVM=1
+         CROSS_COMPILE=aarch64-linux-gnu- M=$PWD modules
+- pstore/ramoops: /sys/fs/pstore in TWRP (adb shell). pmsg-ramoops-0 = initramfs
+  kernel log (circular, 16K). dmesg-ramoops-0.enc.z = panic/oops dump; decompress:
+  python3 -c "import zlib;open('out','wb').write(zlib.decompress(open('f','rb').read(),-15))"
+  NOTE: no dmesg record is written on a clean boot or key-reset — only panics
+  (softlockup_panic=1 in bootargs makes lockups self-dump).
+- Phone side: kmscube, modetest, weston (pixman), gdb, strace installed via apk.
+  weston run recipe:
+    sudo sh -c 'mkdir -p /run/xdg; chmod 777 /run/xdg;
+      printf "[core]\nrenderer=pixman\n[shell]\nbackground-color=0xffRRGGBB\nidle-time=0\n" > /run/xdg/weston.ini;
+      XDG_RUNTIME_DIR=/run/xdg nohup weston --config=/run/xdg/weston.ini \
+        --backend=drm-backend.so --continue-without-input >/tmp/weston.log 2>&1 &'
+  (idle-time=0 is REQUIRED — weston DPMS-off idles the CRTC otherwise.)
+- SD rootfs writable from laptop at /run/media/athul/pmOS_root (user mounts it;
+  TWRP cannot mount ext4). bootdiag openrc service installed: writes
+  /var/log/bootdiag.log and copies to /boot/bootdiag.log (FAT, readable in TWRP).
+
+## WORKFLOWS
+Build+flash (fully authorized — do not ask before flashing when in download mode):
+  cd /tmp/kernel-patchwork && make ARCH=arm64 LLVM=1 CROSS_COMPILE=aarch64-linux-gnu- LOCALVERSION= -j8 Image dtbs
+  cd /home/athul/postmarketos/uniLoader && cp .../Image blob/Image && cp .../exynos8895-greatlte.dtb blob/dtb
+  make -s ARCH=aarch64 CROSS_COMPILE=aarch64-linux-gnu- -j8
+  cp uniLoader /home/athul/postmarketos/work/ulpkg/boot/bootshim
+  mkbootimg --header_version 1 --kernel work/ulpkg/boot/bootshim --ramdisk work/empty_ramdisk \
+    --pagesize 2048 --base 0 --kernel_offset 0x10008000 --ramdisk_offset 0x11000000 \
+    --second_offset 0x10f00000 --tags_offset 0x10000100 -o work/boot-vNN.img
+  heimdall flash --BOOT work/boot-vNN.img   (phone in download mode: VolDown+Home+Power)
+Reboot to download from SSH: copy work/reboot-download to phone /tmp, sudo run it.
+Phone sudo password: 147147. User puts phone into TWRP (VolUp+Home+Power) when asked;
+adb works in TWRP (MTP mode on USB).
+
+## FAILED EXPERIMENTS / DEAD ENDS (do not retry blindly)
+- PPS before sleep-out at probe: wedges DSI command path (-110). Sleep-out must be
+  the first command; full init runs in prepare().
+- Sending init commands piecemeal mid-stream (paneldbg): no effect; init must be
+  a sequenced whole before display-on (now implemented in v101).
+- initial_dec_delay 0x0268 vs 0x01B4 in encoder: no visible change (weak knob).
+- DSC encoder BYTE_SWAP off: pattern changed (whiter) but not fixed; restored ON
+  (downstream has it ON).
+- IDMA format ARGB8888 vs XRGB8888 live change: no visible change.
+- DSIM MULI_SLICE_PACKET off: appeared to wedge (phone seemed stuck) — restored 0xa.
+- modetest: sets mode then exits (tears down). kmscube: segfaults in
+  gbm_bo_get_device (panfrost import EIO → swiotlb; CMA fix applied but kmscube
+  still crashes — use weston+pixman as the test client).
+- Writing 0x12800010 (DPU0 CMU) with devmem: wedged/rebooted the phone.
+  The CMU is live-critical; read-only inspection is safe, writes are not.
+- panfrost GPU import of display buffers: swiotlb bounce for >swiotlb segments;
+  root cause = CMA placement vs 32-bit GPU mask. kmscube remains broken; if GPU
+  rendering is needed, either place CMA low (done), enlarge swiotlb, or add the
+  G3D SMMU to DT (exynos8895 has one; not enabled in mainline DT).
+
+## LIVE OPEN HYPOTHESES (next things to try, in rough priority)
+1. The panel likely still isn't in DSC decode mode: reads of 0x9D return 0x00
+   (may be write-only, but combined with "0x09 0x01 changed the pattern", the
+   Samsung-proprietary DSI packet type 0x09 ("DSC PRA" in their tree) may be the
+   real enable path. Try: send rawtx 09,01 in prepare (in-kernel, proper sequence)
+   BEFORE display-on. MAINLINE's MIPI_DSI_PICTURE_PARAMETER_SET=0x0a matches
+   Samsung's DSC_PPS, but there is no mainline equivalent of their DSC_PRA=0x09.
+2. Encoder reset-default PPS fields (bytes 36-57, 60-75: flatness qp, rc_model,
+   rc_buf_thresh, RC range params 1-8) are unprogrammed on both ends — assumed
+   HW defaults match. If the DSC core defaults differ from the panel table,
+   decode fails exactly like this. Enumerate writable DSC_PPS registers
+   (downstream regs-decon.h has DSC_PPS56_59 etc.) and program the full table
+   4-87 on both encoders.
+3. The DECON window data feeding the encoders may be in the wrong format/order:
+   check blender/window BGR vs RGB (panel status bit says BGR; formatter RGB order
+   currently DECON_RGB=0 — try BGR), and XRGB vs ARGB in the IDMA.
+4. DSI link: reads work in LP; BTA during streaming fails (-74, probably normal).
+   If 1-3 fail, scrutinize the HS clock-lane behavior (NONCONT_CLOCK_LANE set;
+   TX_REQUEST_HSCLK reads 0 — verify against a downstream boot whether that bit
+   is sticky; STATUS bit25 may be the HS-ready flag).
+5. gamma/ELVSS/AOR are NOT sent (brightness-related only; would not fix noise
+   but needed before the image is usable).
+
+## KEY LESSONS
+- pstore pmsg only covers initramfs; add softlockup_panic early (done) or you fly
+  blind on freezes.
+- /tmp on the phone is wiped every boot — re-push helpers.
+- Always verify register writes with readback where the SFR allows; some Samsung
+  SFRs read as 0 (write-only) — readback 0 is not proof of a failed write.
+- The two-register-bank DPU (DPP vs DMA view) bit hard: 0x12851000 vs 0x128B1000.
+- heimdall flash reboots the phone; after flashing, Wi-Fi/SSH takes ~2min.
+- Deferred fbcon + no fbdev = no console on panel; screen will be black when the
+  system is fine. Success criteria = SSH + interrupt counters + photos.
+
+## UPDATE 2026-10-05 (Claude, v102-v104): PANEL SHOWS A CORRECT IMAGE
+Root cause of the noise: DSC encoder SFR 0x58 holds PPS bytes 56..59. The driver
+wrote only 0x0102 (bytes 58/59) with a full write, zeroing rc_buf_thresh[12..13]
+(0x7d,0x7e) -> encoder RC model != panel decoder -> noise. Fixed in v104 (commit
+cb5a79dbe). Found by booting with decon/dsim disabled in DT + clk_ignore_unused
+(work/boot-v102-golden.img) and dumping the bootloader-programmed registers with
+work/regdump (static /dev/mem range dumper: `regdump <hexbase> <hexlen> ...`).
+Golden dump: work/regs-bootloader-golden.txt. Don't read DECON past +0x618 (bus error).
+Also fixed: DSIM accepts type 0x07 compression-mode packets (panel now uses that
+instead of DCS 0x9D), PER_FRAME_READ_EN cleared, SLICE23 set, init_dec_delay
+0x268, bootloader window 5 disabled. Patch backup: work/patches-display-bringup/.
+
+## UPDATE 2026-10-05 later (Claude, v105-v107): PLASMA MOBILE + TOUCH WORK
+- v105: PRIME export used virt_to_page() on a WC remap -> bogus phys -> swiotlb; now
+  dma_get_sgtable(). DRM driver name is "exynos" so Mesa kmsro pairs it with panfrost
+  (kmscube 60fps on GPU). NOTE: kmscube quits instantly over ssh (stdin EOF) - run
+  `sleep 30 | kmscube`.
+- v106: touch is a Samsung Y661 (s6sy761 protocol); mainline driver failed because
+  the first queued event wasn't boot-complete. Now polls like the vendor driver.
+- v107: CMA 384M@0x80000000-0xbc000000 (KWin exhausted 128M).
+- rootfs: 7 files in /etc/xdg were 0 bytes (incl. autostart/org.kde.plasmashell.desktop)
+  -> plasmashell never started. Restored from *.apk-new. Likely from hard resets;
+  fsck the SD rootfs from the laptop when convenient.
+- tinydm enabled in default runlevel (autologin Plasma Mobile).
+- OPEN: spontaneous reboots (2 seen); pstore stays empty (even console record) so
+  the reset wipes RAM. Live log capture loop -> work/live-dmesg.log.
+
+## UPDATE 2026-10-05 night (Claude, v108-v109)
+- GPU ran at 26 MHz (oscillator): panfrost fdinfo drm-cycles / drm-engine ns = 26.0.
+  Real G3D PLL is at CMU_G3D+0x140 (pmucal), not 0x120 (cmucal map; reads 0).
+  v109: PLL at 0x140 recalc-only, busd mux no SET_RATE_PARENT, OPP 260 MHz,
+  /etc/init.d/g3d runs steps 1 2 3 6 5. GPU now 260 MHz, Plasma ~16 fps.
+- v108 (PLL with set_rate + 546 MHz OPP) FROZE at boot - do not repeat. Raising the
+  clock must be done by an explicit, live-tested PLL reprogram with the GPU idle.
+- work/reboot-download had NO sync() -> every reboot-to-download lost recent writes
+  (cause of the 0-byte files). Fixed (sync added); always `sync` after rootfs edits.
+- Plasma scale set to 3 (kscreen-doctor output.DSI-1.scale.3).
+- Brightness: panel has no DCS 0x51; AOR (B1 hi lo, F7 03 latch, key2 F0 5A5A)
+  dims, but raw writes mid-frame caused artifacts -> needs frame-synced backlight.
+- v110: g3d step 7 relocks the G3D PLL to 546 MHz (service order 1 2 3 6 7 5), OPP 546.
+- v110/v111: real vblank (trigger always armed, events from frame-start irq).
+  Panel refresh measured 59 fps (DECON FRAME_ID @0x128602a0); Plasma ~24-30 fps,
+  limited by plasmashell(~4ms)+kwin(~7ms) GPU latency per frame at 546 MHz.
+- Reminder: /tmp on the phone is wiped every boot; re-push reboot-download/devmem.
+
+## UPDATE 2026-10-06 (Claude): ROOTFS NOW ON INTERNAL UFS (v122)
+- UFS driver: ufs-exynos 8895 variant (downstream table interpreter), HS-G3 x2, ~600 MB/s.
+  Keys: disable HW ACG (HCI 0xFC), skip the secure UFS protector (FMP SMC hangs),
+  NOT dma-coherent, UPMCRS read from UniPro 0x78EC (new get_upmcrs vop), FSYS0 bus
+  clocks (AHBBR/RSTNSYNC/PMU/BTM, NOT the XIUs) on the UFS node, ufs-vcc always-on.
+- Boot: pmos_boot_uuid=202ae7c7-... (sda16 CACHE, ext2 4K blocks!) and
+  pmos_root_uuid=f9cb90c2-... (sda21 USERDATA, ext4) in DTB bootargs. UFS has 4K
+  logical sectors: 1K-block filesystems will not mount.
+- Android userdata/cache wiped (user approved). SD card no longer needed; to boot the SD
+  again flash a kernel without the pmos_*_uuid args (e.g. work/boot-v121.img).
+
+## UPDATE 2026-10-07 (Claude): BROWSER START-UP FREEZE — INVESTIGATION LOG (UNSOLVED)
+Symptom: opening Firefox or Angelfish hard-freezes the phone within seconds of
+the window appearing, BEFORE any page loads (user confirmed). Screen frozen,
+WiFi/ssh gone, kernel log just stops: no panic, no soft/hard-lockup report
+(HARDLOCKUP_DETECTOR_BUDDY is on), ramoops/console-ramoops empty after the
+forced reboot (the reset does not keep RAM). Force reboot recovers.
+
+Tests, in order (phone running v122 from UFS unless noted):
+| # | Test | Result |
+|---|------|--------|
+| 1 | Rootfs moved from microSD to UFS | Still freezes -> NOT the SD/UHS bug |
+| 2 | GPU at 260 MHz (dropped g3d step 7) | Still freezes -> not the GPU clock |
+| 3 | `~/bin/cpuburn.sh 90`: 8 `while :` loops, 90 s, all cores at max (governor = performance) | OK |
+| 4 | `~/bin/memburn.sh 90`: 8x `dd bs=32M` /dev/zero->/dev/null, 90 s | OK |
+| 5 | glmark2-es2-wayland --off-screen (full run) | OK, no faults |
+| 6 | glmark2-es2-wayland --fullscreen (full run, score 37) | OK; one harmless page fault in glmark itself |
+| 7 | Angelfish with QTWEBENGINE_CHROMIUM_FLAGS=--disable-gpu | Froze |
+| 8 | `~/bin/nsburn.sh 300`: 300x `unshare -Urn true` (browser sandbox namespaces; last dmesg lines before freezes are `lo` device_add) | OK in 5 s |
+| 9 | `openssl speed -multi 8` AES-256-GCM + SHA-256 together (SIMD/crypto, load ~10) | OK |
+| 10 | `~/bin/freezelog.sh`: per-second synced log of meminfo/top/temps + dmesg -w to ~/freezelog | Freeze ~3 s after Firefox start; 1.2 GB free -> not OOM; nothing in dmesg |
+| 11 | `~/bin/sysprobe.sh`: read every file under /sys/devices, /sys/firmware, /sys/kernel (9482) one by one as user, path fsync'd first | OK |
+| 12 | Firefox with LIBGL_ALWAYS_SOFTWARE=1 MOZ_WEBRENDER_SOFTWARE=1 (no panfrost at all; ~/.local/share/applications/firefox.desktop override still installed) | Froze |
+| 13 | drm_info (enumerates card0 exynos + card1/renderD128 panfrost) | OK |
+| 14 | `firefox --headless --screenshot` | OK, exits in 5 s |
+| 15 | On-screen keyboard (tap a text field in drawer search) | OK |
+| 16 | Firefox on X11 via Xwayland (MOZ_ENABLE_WAYLAND=0, DISPLAY=:0) | Froze |
+Also: no /dev/video* devices exist (V4L2 probing ruled out); the network is
+not involved (freeze precedes any page load).
+
+Conclusion so far: it follows the browser WINDOW on the desktop, independent
+of GPU rendering, Wayland vs X11, storage, CPU/memory load.
+Next steps (not yet done):
+- Open other heavy non-browser apps (Konsole, Discover, Dolphin) - none tried yet.
+- strace the browser start-up into a log that survives the freeze (fsync per
+  line, or pmsg if RAM retention can be made to work, e.g. via a watchdog
+  warm reset).
+- Display path: an unclocked DECON/DSIM register access when a new big
+  window/plane appears (kwin direct scan-out, cursor/overlay planes?).
+- Angelfish on the GPU also hit WARN panfrost_gem.c:213 (madv != WILLNEED on
+  a PRIME self-import) and GPU DELAYED_BUS_FAULT / JOB_BUS_FAULT before a freeze.
+
+Side fixes made during the hunt:
+- Clock was 1970 every boot (no RTC driver; chronyd starts before WiFi and
+  never syncs) -> /etc/NetworkManager/dispatcher.d/50-chrony-resync.
+- Firefox/Konsole installed; KDE app cache must be rebuilt in Plasma's locale
+  (LANG=en_US.UTF-8 -> ksycoca6_en_*), not the ssh shell's.
+- Idle screen-off/dim disabled in powerdevilrc: after Plasma blanks the
+  screen, the panel does not come back (DPMS on restarts DECON + DSIM with
+  TE running but the panel stays black). The DSIM bridge/panel have no
+  disable/enable hooks - needs fixing (separate bug).
+- g3d boot script restored to steps 1 2 3 6 7 5 (546 MHz).
+- GitHub master 5c5fd27: exynos8895-ufs.patch (= kernel 99941b8ed..6b7f51ad2,
+  verified byte-identical), config UFS=y, pkgrel 30, docs §16 UFS, §17 freeze.
+  The UUID bootargs commit (4d8c263ea) is device-specific and NOT in the patch.
+
+--------------------------------------------------------------------------------
+UPDATE 2026-10-07 evening (Claude): BROWSER FREEZE SOLVED, KERNEL 7.0, RELEASE
+--------------------------------------------------------------------------------
+Root cause of the browser freeze: firmware-owned RAM was mapped as ordinary
+RAM. The stock greatlte DT reserves carveouts (/memreserve/ 0xE0000000
+0x1900000 = secure world, plus seclog/secure_camera/abox/modem/cp_log/gnss);
+ours reserved none. Browsers allocate hundreds of MB at start-up, touch a
+page there, and the bus locks up (no log at all). Fix = no-map reservations
+(kernel commit e5b6e7cd4, aports greatlte-reserved-memory.patch). TIMA at
+0xB1000000 is NOT reserved: it splits the 384M CMA window -> "cma: Failed to
+reserve 384 MiB" -> black screen (KWin dumb-buffer alloc WARN).
+Additional tests after the table above:
+| 17 | kernel 7.0 final (v123) | still froze |
+| 18 | panfrost.transparent_hugepage=0 (v124) | still froze |
+| 19 | strace streamed over ssh to laptop | URL Classifier thread killed by SIGSEGV inside read() into fresh 2MB mmap |
+| 20 | cat the same file, caches dropped | fine -> the page, not the file |
+| 21 | dmesg -w streamed over ssh | nothing before the stop (bus lock-up) |
+| 22 | all stock carveouts no-map (v125) | Firefox fine, but CMA failed -> black screen |
+| 23 | same minus TIMA (v126) | Firefox + Plasma fine -> SOLVED |
+Boot images: v123 = 7.0, v124 = +THP off, v125 = +all carveouts, v126 =
+carveouts minus TIMA (CURRENTLY FLASHED, UFS by UUID). Modules for 7.0.0 are
+hand-installed in /lib/modules/7.0.0 (scratch build); 7.0.0-rc1 still there.
+Kernel tree /tmp/kernel-patchwork has e5b6e7cd4 (carveouts) and dc578b987
+(pmos.force-partition-resize in bootargs). 7.0 scratch tree: scratchpad/linux-7.0.
+Polkit: phone had polkit-noelogind-libs -> Plasma "not authorized to control
+networking". Fixed on UFS: apk add polkit-elogind '!polkit-noelogind-libs'
+(world pins it), and the D-Bus-activated old polkitd had to be killed.
+GitHub: master 8034944 (kernel 7.0-r1, both patches, addons, BRINGUP §17/§18).
+Release v2026.10.07: boot-greatlte-7.0.img (generic, label-based) +
+pmos-greatlte-plasma-mobile.img.xz (OpenRC Plasma Mobile, user/123456) +
+SHA256SUMS. Test-booted from microSD: Plasma, WiFi, BT, Firefox, rootfs grow OK.
+The microSD now holds the release image (old SD install overwritten, approved).
+pmbootstrap: config restored (ui=buffyboard, user=athul); pmaports
+device/testing synced from the repo aports (old copies in work/pmaports-backup-20261007).
+2026-10-07 late: WiFi ~2 min delay fixed (txcap_blob sysfs-fallback timeouts) with
+sysctl.kernel.firmware_config.ignore_sysfs_fallback=1 -> boot-v127 (CURRENTLY
+FLASHED, UFS). Package 7.0-r2 (greatlte-no-fw-fallback.patch), GitHub 51c9c53,
+release boot.img replaced. SD card REMOVED from the phone: rely on UFS only.
+The release boot.img (label-based) hangs without the card - expected.
+Phone IP changed to 192.168.1.187 (DHCP).
+
+PENDING REPO CHANGES (not pushed yet; to be done together with the user)
+- [ ] Kernel config: CONFIG_USB_DUMMY_HCD=n (aports config-postmarketos-exynos8895.aarch64).
+      dummy_hcd + the initramfs USB gadget created usb0 (gadget) and usb1
+      (cdc_ether host side of the same loopback) - a fake Ethernet in NM and
+      "dummy_hcd timer fired" log spam. Tested on the phone as boot-v128
+      (v127 + DUMMY_HCD off, Image from scratchpad/linux-7.0): usb0/usb1 gone.
+      Needs: pkgrel 3, rebuild, refresh release boot.img, BRINGUP/README note
+      (README "USB to a PC" row mentions dummy_udc).
+- [ ] Phone-only: removed unudhcpd.usb0 (boot) and usb-signaller (default)
+      from the runlevels. Consider doing the same in tools/install-rootfs-addons.sh.
+- Note: polkit/modemmanager show "failed" in rc-status because D-Bus starts
+  them before OpenRC (cosmetic); iio-sensor-proxy fails (no IIO sensors).
+- [ ] Big cluster OPPs 1807/1937/2002/2158/2314 MHz (exynos8895.dtsi cluster1_opp_table;
+      ECT table v1 group0 worst bin + ~12.5 mV: 1043750/1075000/1087500/1131250/1137500 uV).
+      Old ">1.7 GHz hangs" note was the cluster swap (§15.3). 30 s per step, 0 hash errors.
+- [ ] TMU THERMAL (the 2.3 GHz "crash" was thermal runaway: die >150 C, no throttling;
+      even 1703/1690 all-core hit 94 C in 30 s and kept rising):
+      * drivers/thermal/samsung/exynos_tmu.c: SOC_ARCH_EXYNOS8895 variant (+161 lines):
+        per-sensor two-point trim (85C point at bit 9, calib sel bit 23), vref/slope from
+        TRIMINFO0/1 bits 18+, read = max(sensor0, sensorN-20) over "samsung,sensors",
+        Exynos7 threshold/IRQ/emulation paths. HW trip (CONTROL bit 12) left off.
+        Reference: exynos8895/android_kernel_samsung_universal8895 lineage-19.1
+        drivers/thermal/samsung/exynos_tmu.c (saved in reference/u8895-tmu/).
+      * DT: tmu_cpu @0x10080000 (SPI 451, sensors 0x3f), tmu_gpu @0x10084000 (SPI 452,
+        sensors 0x1), clock gout_peris_busif_tmu_pclk ("tmu_apbif"), #cooling-cells on
+        all 8 CPUs, thermal-zones: cpu-thermal trips 83/88/93/98 passive (each forcing a
+        minimum cooling state - plain step_wise with one trip let it sit at ~100 C) +
+        115 critical; gpu-thermal 115 critical.
+      * config: CONFIG_EXYNOS_THERMAL=y
+      Tested (v132): 2314 big-only 2 min -> peak 92, steady 86 C; all-core schedutil
+      2 min -> steady 88 C, 0 errors. TMU pclk is otherwise gated by clk_disable_unused
+      (Bus error on /dev/mem reads) - devmem 0x10012020 0x00300000 to read it by hand.
+- [ ] Phone /etc/local.d/cpuspeed.start: schedutil on both clusters, no cap (was
+      performance + 1703 cap; old copy cpuspeed.start.orig-1703). rootfs-addons copy too.
+- [ ] Phone ~/bin/soak.sh, ~/bin/bigburn.sh: hash-checking load tests (could go to tools/).
+Boot image history: v129 OPPs to 2314; v130 2314@1162.5mV (didn't help - thermal);
+v131 TMU driver + single trip; v132 graded trips (CURRENTLY FLASHED, UFS, phone .175).
+
+PLASMA SMOOTHNESS INVESTIGATION (2026-10-07 night, unsolved; ~20-28 fps scrolling)
+Ruled out / measured:
+- CPU: kwin <=40% (spikes ~98%), plasmashell mostly <=30% of one core while scrolling.
+- Memory bandwidth (CPU side, ~/bin/membw): read/write ~15 GB/s all-core, copy 18 GB/s
+  traffic - healthy, so MIF is not starved. DO NOT devmem CMU_MIF (0x16x00100):
+  reading PLL_MIF hung the bus -> forced restart.
+- GPU clocks: G3D PLL 0xa0a80411 = 546 MHz, busd from the PLL (clk_summary).
+- GPU raw: glmark2 1440x2960 off-screen build 500 fps (2.1 Gpx/s); on-screen fullscreen
+  745 fps (direct scanout). Old 40 fps log predates the GPU clock fix.
+- panfrost fdinfo (profiling=1): fragment engine busy/queued 150-660% while
+  scrolling, tiler <=40% -> GPU-side, fragment, but not raw fill rate.
+- Plasma Mobile blurs (BlurredBackground/ThumbnailStrip MultiEffect, BlurEffect
+  FastBlur r=42) patched out via qmldir "prefer" removal: no visible gain -> reverted
+  (backup ~/backup-mobileshell-qml).
+- PAN_MESA_DEBUG=perf: 1322 "AFBC write staging blit" flushes in 20 s (+11k Gallium
+  flushes). PAN_MESA_DEBUG=noafbc: no change -> reverted.
+- KWin: DECON has 1 plane and no FB modifiers ("drmModeAddFB2WithModifiers is not
+  supported") -> everything composited into a linear buffer; DECON page-flip event
+  already completes at frame start (not after the DSI transfer).
+Next ideas: KWin frame-timing (render vs vblank misses, GPU timer queries on panfrost),
+DECON modifier/extra-plane support, check KWin triple buffering. User wants to stay
+on Plasma (no DE change for now). Session restarts: tinydm restart leaves the old
+startplasmamobile tree alive - kill it by explicit PID (pgrep -f self-matches).
+
+PLASMA 30 FPS CAP - SOLVED (2026-10-07 late night)
+- KWin_LOG_PERFORMANCE_DATA CSV: KWin renders in ~4 ms but every flip landed 2 refreshes
+  after its target (locked to 30 fps; 20 fps when GPU-bound).
+- GPU load while scrolling was mostly KWin's SOFTWARE BRIGHTNESS ("allowSdrSoftwareBrightness",
+  brightness 0.29: the panel has no backlight control, so KWin recolours every pixel).
+  At 100% KWin GPU fragment dropped to ~9% and predicted render to ~7 ms.
+  -> real fix = hardware brightness in the S6E3HA6 panel driver (AOR/ELVSS tables).
+- DECON timing trace (debugfs decon_timing, commit/start/done/event with shadow-req
+  state): the driver requested only platform_get_irq(pdev, 1) = SPI 144 FRAME DONE;
+  the FRAME START line (SPI 143, "frame-start" in our DT) was never requested, so the
+  frame-start status was only seen at frame done (~14.9 ms later, 1.8 ms before the
+  next TE latch). KWin got the flip event at frame done, committed ~3 ms later, just
+  after the next latch -> every frame waited an extra refresh.
+- Fix (boot-v134, phone): request both "frame-start" and "frame-done" by name; vblank +
+  flip event now at frame start. Commit->event 2.8 ms, 255/255 commits 1 refresh apart
+  (60 fps). KWin safety-margin override no longer needed (removed).
+PENDING REPO CHANGES (add to the list above):
+- [ ] exynos8895-decon.c: request the frame-start IRQ (platform_get_irq_byname
+      "frame-start"/"frame-done", enable/disable both). Keep or drop the debugfs
+      decon_timing trace (debug-only; useful but not for upstream-style patches).
+- [ ] Phone: ~/.config/plasma-workspace/env/kwinperf.sh (KWIN_LOG_PERFORMANCE_DATA) -
+      remove when done measuring. KWin brightness currently 100% (software brightness).
+
+2026-10-07 23:30: PENDING REPO CHANGES above are PUSHED (GitHub 9f4e7b1, kernel 7.0-r3:
+exynos8895-decon-frame-start.patch, exynos8895-thermal.patch, exynos8895-cpu-2314.patch,
+EXYNOS_THERMAL=y, USB_DUMMY_HCD off, schedutil cpuspeed.start, install script drops USB
+services, tools/soak.sh, README, BRINGUP §19-20). pmbootstrap build of r3 verified.
+/tmp/kernel-patchwork has the same three commits. Release images NOT refreshed yet
+(user: later). Phone runs boot-v134 (= r3 + debugfs decon_timing trace).
+Still on the phone: ~/.config/plasma-workspace/env/kwinperf.sh (KWin frame CSV logging).
+NOTE: docs/BRINGUP.md lines ~35 and ~213 contain the phone user password (from earlier
+commits, already public on GitHub).
+
+2026-10-08: snapshot taken -> /home/athul/postmarketos/08-10-2026-Snapshot (boot-v134, UFS rootfs
+img+tar, /boot img, restore README). Then 6 GB RAM fix:
+- Stock DT has memory@900000000 with size 0 (bootloader fills it in); our uniLoader-booted DT
+  never gets that fixup, so only 3.7 GB was visible.
+- boot-v135 (CURRENTLY FLASHED) = r3 kernel (no trace) + <0x9 0x0 0x80000000> in the greatlte
+  memory node -> MemTotal 5,770,860 kB; ~/bin/memfill 3520 MB x2 verify: 0 bad words.
+PENDING REPO CHANGE: add <0x9 0x00000000 0x80000000> to memory@80000000 in the greatlte dts
+(new small patch, pkgrel 4) + README "Full 6 GB RAM" row -> works.
+2026-10-08: RAM fix PUSHED (GitHub 517e8d9, kernel 7.0-r4, greatlte-6gb-ram.patch; r4 build verified).
+Discover installed on the phone (discover + apk + flatpak backends, flatpak, Flathub remote system-wide;
+9 new packages, no upgrades). Phone runs boot-v135 (= r4 kernel).
+
+USB DEVICE MODE - WORKING (2026-10-08, boot-v138 on the phone, NOT in the repo yet)
+- PHY: new "samsung,exynos8895-usbdrd-phy" variant in phy-exynos5-usbdrd.c, port of the vendor
+  CAL (phy-samsung-usb3-cal.c, version 01_1_1 "KC"): PMU 0x704 bit0 de-isolate, refclk select
+  0x10e5007c bit24, registers start after a version word at +0 (0x10000 -> +4 shift), Q-channel
+  WA (PHYRESUME + LINKSYSTEM soft reset), PHYCLKRST REFCLKSEL=CLKCORE FSEL=26 MHz, port 1
+  (0x10e10000) powered down, UTMI VBUS forced (no VBUS pad), OTG off.
+  Vendor source: exynos8895/android_kernel_samsung_universal8895 lineage-19.1
+  drivers/phy/phy-exynos-usbdrd.c + phy-samsung-usb3-cal.c (saved in reference/u8895-usb/).
+- DWC3 glue: "samsung,exynos8895-dwusb3" clocks aclk/susp/ref + bus_lhm/bus_us + USBTV XIU/AHB.
+  KEY GOTCHA: gout_fsys0_usbtv_i_usbtvh_xiu_clk carries ALL register access to the DRD block
+  and PHY; unclaimed it is gated by clk_disable_unused right after probe -> every register
+  reads 0 and nothing reaches the cable. DWC3 core is 2.80a (GSNPSID 0x5533280a).
+- DT: usbdrd @0x10c00000 (dwc3 child IRQ SPI 337, dr_mode peripheral, high-speed for now),
+  usbdrd_phy @0x10e00000 size 0x50080.
+- Config: CONFIG_USB_ETH off (legacy g_ether grabbed the UDC before pmOS's configfs gadget and
+  its RNDIS link timed out). pmOS initramfs NCM gadget + unudhcpd on usb0 (172.16.42.1) work:
+  ping 2.4 ms, SSH, 32 MB/s laptop->phone, 15 MB/s phone->laptop (ssh-encrypted).
+- Plug orientation was a red herring (gpi1-7 = 0 in both cases); failures were a cable already
+  attached at boot (needs one re-plug - still to fix) and the wedged g_ether.
+- Laptop quirk: enp3s0 has a static 172.16.42.2/24 that wins the route; needed
+  `sudo ip route add 172.16.42.1/32 dev enx...` for the test (temporary).
+- Phone: unudhcpd.usb0 (boot) and usb-signaller (default) are back in the runlevels.
+2026-10-08 ~10:50: USB committed and pushed (777caea) in postmarketos-note8 (kernel 7.0-r5,
+exynos8895-usb.patch). Cable-at-boot fixed by max77865-muic (MUIC CONTROL1 0x19 = 0x89; it was 0 =
+open). /tmp/kernel-patchwork has the same 4 commits. Phone runs boot-v140 (= r5 + phone dts).
+DON'T unbind exynos-dwc3 at runtime (kernel crash, then reboot hang).
+2026-10-08: ADB over USB - Alpine adbd is TCP-only (no FunctionFS), needs LD_LIBRARY_PATH=/usr/lib/art.
+/etc/init.d/adbd (rootfs-addons) runs it as uid-10000 user on 5555 via supervise-daemon; firewall allows
+usb* only. `adb connect 172.16.42.1:5555`. push/pull ~2 MB/s (scp ~30). Committed locally (c45d41a), not pushed.
+2026-10-08: MTP: 'usb-mode mtp' (usb-signaller + umtprd, /etc/umtprd default_uid 10000). Local commit, not pushed.
+2026-10-08: ADB removed again (user: SSH over USB is enough). adbd/art_standalone uninstalled, service dropped (commit 09d800d, local).
+2026-10-08: PUSHED master 777caea (USB device mode r5 + MTP). Release image still old.
+2026-10-08: v143 = battery fuel gauge (max17042, maxim,max77865-battery). Charger watchdog (0x69 CNFG_00 WDTEN) stops charging ~3 min after boot; no charger driver yet. Phone USB MAC is random per boot; laptop route to 172.16.42.1 goes via enp3s0 - use ping -I / link-local.
+2026-10-08: v144 = fuel gauge + charger watchdog driver; charging ~1A on wall charger. Repo commit local only (r6), not pushed.
+2026-10-08 13:15: PUSHED c1bc08e. Phone v148 = r7 + phone dts (no THP param). Glyph-cache workaround under test; DoubleTapWakeup=false in user kwinrc.
+
+## UPDATE 2026-10-08 afternoon - 2026-10-09 (Claude)
+- Audio (kernel r8, GitHub 82cb145): CS47L93 codec + ABOX (Calliope firmware CQK0 in
+  /lib/firmware) via a new sound/soc/samsung/abox driver; earpiece through PulseAudio + UCM,
+  capped at -6 dB. Lessons: SMC_CMD_REG hangs (write the ABOX GIC directly); exynos-iommu
+  needs the master runtime-PM active or the SysMMU stays bypassed; unmapped IOVA = IRQ storm.
+- Kernel r9 (7812449): panel brightness through AOR (0xb1; KWin dropped software
+  brightness), capacity-dmips-mhz (M2 1024 / A53 572; CPU map 0,5-7 = A53, 1-4 = M2),
+  ABOX VSS window mapped.
+- Kernel r10 (2410937) + release v2026.10.09: bottom speaker (MAX98506 on UAIF4), ABOX DMA
+  position fix (count is in 16-byte units). Release microSD image NOT boot-tested.
+- 2dfc2b6: zram (lzo-rle, kernel has only LZO) + 10 GB /swapfile behind it
+  (device-samsung-greatlte r3); PulseAudio default sink = speaker
+  (rootfs-addons/etc-pulse-default.pa.d). Elisa 26.08 OOMs on 3x scale without swap
+  (13824^2 placeholder image; fixed upstream in Elisa c5d1a5c).
+- c33fa38, kernel r11: CPU voltages = stock for this chip's fused ASV bin + 25 mV.
+  ASV fuses at 0x10009000 (ungate OTP clock: devmem 0x10012034 0x00300000, restore
+  0x00100000): table 8, big group 6, little group 7, g3d group 4. The bare stock table
+  (v179) froze in normal use after passing a hash test; +25 mV (v180) is current.
+  CPU trips 95/100/110 C + 115 critical (user choice; stock starts at 83 C). GPU still
+  546 MHz only, 812.5 mV (stock for this chip 662.5); stock GPU steps 260/338/385/455/546
+  (v108 froze when the kernel drove the G3D PLL - test carefully).
+- Stock thermal reference: big IPA from 83 C, big cores hot-unplugged at 96 C; little caps
+  81 C -> 1456 ... 96 C -> 598 MHz; GPU 78/88 C; TMU hardware trip at 115 C
+  (CONTROL bit 12 - still off on mainline).
+- Phone: boot-v180 on UFS, SSH athul@172.16.42.1 (USB) or WiFi DHCP. bootdiag service
+  disabled (it rewrote /boot every 30 s; a freeze left /boot needing fsck).
+- Open: 5 GHz WiFi boot freeze, microphones, jack detection, speaker DSM protection,
+  GPU DVFS, TMU hardware trip, per-chip ASV selection at boot (voltages are hard-coded
+  for one chip), release images not refreshed since r10.
