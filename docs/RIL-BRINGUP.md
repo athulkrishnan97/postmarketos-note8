@@ -4,7 +4,8 @@ Companion to [RIL-PLAN.md](RIL-PLAN.md). Kernel side: `exynos8895-modem.patch`
 (Samsung's `modem_v1` interface driver, ported to 7.0) plus the modem nodes
 in `exynos8895-greatlte-modem.dtsi`. Userspace: `tools/modem/`.
 
-Nothing here has run on the phone yet. Each step says what to look for and
+The kernel (Image + dtb, with the driver built in) compiles; nothing here
+has run on the phone yet. Each step says what to look for and
 what to send back. Stop at the first step that does not match.
 
 ## 0. Back up (once, before anything else)

@@ -105,7 +105,9 @@ aports/                 postmarketOS device packages (build these with pmbootstr
                                    exynos8895-speaker.patch (MAX98506 driver, ABOX
                                    UAIF4 speaker path, DMA position fix, dts),
                                    exynos8895-cpu-stock-volts.patch (stock CPU
-                                   voltages + 25 mV, throttling from 95 °C)
+                                   voltages + 25 mV, throttling from 95 °C),
+                                   exynos8895-modem.patch (Shannon CP modem
+                                   interface: Samsung modem_v1 ported, under test)
   device-samsung-greatlte/         device package (device info, zram/swap settings)
   uniloader-samsung-greatlte/      bootloader package
 uniloader-files/        our uniLoader board port (2 files; applied onto upstream uniLoader)
@@ -124,6 +126,9 @@ rootfs-addons/          files to install into the phone rootfs
                                     ABOX Calliope audio firmware (calliope_*.bin)
   usr-share-alsa-ucm2/              ALSA UCM profile (speaker / earpiece / headphones)
   etc-pulse-default.pa.d/           PulseAudio: default to the bottom speaker at every start
+tools/modem/            modem bring-up: partition backup, RADIO TOC parser,
+                        android-env (runs Samsung's cbd from SYSTEM), mifmon
+                        (IPC/RFS monitor, AT on umts_router), smcprobe.ko
 tools/                  install-rootfs-addons.sh (put rootfs-addons into a pmbootstrap image),
                         soak.sh (hash-checked per-CPU load test for clocks/thermals),
                         ect_parse.py (dump the bootloader's ECT voltage/PLL tables),
@@ -132,6 +137,7 @@ docs/BRINGUP.md         the full technical journey: every root cause we hit
                         (section 15: display, GPU clock, CPU clusters)
 docs/HANDOVER.md        running handover notes between agents (state, lessons, open items)
 docs/RIL-PLAN.md        plan for the modem (Shannon 355 CP) and RIL bring-up
+docs/RIL-BRINGUP.md     modem test sequence on the phone (kernel r12 + tools/modem)
 ```
 
 ## Quick start (prebuilt release)
