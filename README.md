@@ -131,6 +131,7 @@ tools/                  install-rootfs-addons.sh (put rootfs-addons into a pmboo
 docs/BRINGUP.md         the full technical journey: every root cause we hit
                         (section 15: display, GPU clock, CPU clusters)
 docs/HANDOVER.md        running handover notes between agents (state, lessons, open items)
+docs/RIL-PLAN.md        plan for the modem (Shannon 355 CP) and RIL bring-up
 ```
 
 ## Quick start (prebuilt release)
