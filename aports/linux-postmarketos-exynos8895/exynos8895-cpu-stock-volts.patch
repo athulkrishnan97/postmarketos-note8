@@ -1,0 +1,227 @@
+From abcd21c775dc4c1106f417e923e0fc0a1ee088c9 Mon Sep 17 00:00:00 2001
+From: Athul <athulkrishnan97@users.noreply.github.com>
+Date: Fri, 9 Oct 2026 21:35:57 +0100
+Subject: [PATCH] arm64: dts: exynos8895: stock CPU voltages + 25 mV, throttle
+ from 95 C
+
+Use the stock N950F voltages for this phone's fused ASV bin (ECT table
+version 8, big group 6, little group 7) plus a 25 mV margin; the bare
+table froze the phone in normal use. CPU throttling now starts at 95 C,
+with steps at 100 and 110 C; the critical trip stays at 115 C.
+---
+ arch/arm64/boot/dts/exynos/exynos8895.dtsi | 75 +++++++++-------------
+ 1 file changed, 32 insertions(+), 43 deletions(-)
+
+diff --git a/arch/arm64/boot/dts/exynos/exynos8895.dtsi b/arch/arm64/boot/dts/exynos/exynos8895.dtsi
+index 361cf0c12..b9330d628 100644
+--- a/arch/arm64/boot/dts/exynos/exynos8895.dtsi
++++ b/arch/arm64/boot/dts/exynos/exynos8895.dtsi
+@@ -174,8 +174,10 @@ cpu3: cpu@103 {
+ 	 * OPP tables cover the STOCK N950F maximums (1.7 GHz little /
+ 	 * 2.3 GHz big); the higher downstream steps (2.5-2.8 GHz) exist
+ 	 * in the downstream table but are beyond stock.  Voltages are the
+-	 * worst normal ASV bin from the Exynos Characteristic Table plus
+-	 * margin, well within the 1.2 V cap of the vdd_cpucl0/1 bucks.
++	 * stock ones for this N950F's fused ASV bin (Exynos Characteristic
++	 * Table version 8, big group 6, little group 7), as read from the
++	 * ASV fuses at 0x10009000, plus 25 mV: the bare table froze the
++	 * phone in normal use.  Other chips may be fused differently.
+ 	 * The rails are supplied by the S2MPS17 PMIC (see the speedy node).
+ 	 */
+ 	cluster0_opp_table: opp-table-0 {
+@@ -186,37 +188,37 @@ cluster0_opp_table: opp-table-0 {
+ 
+ 			opp-1690000000 {
+ 			opp-hz = /bits/ 64 <1690000000>;
+-			opp-microvolt = <1200000>;
++			opp-microvolt = <1087500>;
+ 		};
+ 
+ 		opp-1456000000 {
+ 			opp-hz = /bits/ 64 <1456000000>;
+-			opp-microvolt = <1062500>;
++			opp-microvolt = <962500>;
+ 		};
+ 
+ 		opp-1248000000 {
+ 			opp-hz = /bits/ 64 <1248000000>;
+-			opp-microvolt = <1000000>;
++			opp-microvolt = <856250>;
+ 		};
+ 
+ 		opp-1053000000 {
+ 			opp-hz = /bits/ 64 <1053000000>;
+-			opp-microvolt = <981250>;
++			opp-microvolt = <800000>;
+ 		};
+ 
+ 		opp-832000000 {
+ 			opp-hz = /bits/ 64 <832000000>;
+-			opp-microvolt = <943750>;
++			opp-microvolt = <737500>;
+ 		};
+ 
+ 		opp-598000000 {
+ 			opp-hz = /bits/ 64 <598000000>;
+-			opp-microvolt = <906250>;
++			opp-microvolt = <668750>;
+ 		};
+ 
+ 		opp-455000000 {
+ 			opp-hz = /bits/ 64 <455000000>;
+-			opp-microvolt = <893750>;
++			opp-microvolt = <643750>;
+ 		};
+ 	};
+ 
+@@ -235,67 +237,67 @@ cluster1_opp_table: opp-table-1 {
+ 
+ 		opp-2314000000 {
+ 			opp-hz = /bits/ 64 <2314000000>;
+-			opp-microvolt = <1137500>;
++			opp-microvolt = <1031250>;
+ 		};
+ 
+ 		opp-2158000000 {
+ 			opp-hz = /bits/ 64 <2158000000>;
+-			opp-microvolt = <1131250>;
++			opp-microvolt = <968750>;
+ 		};
+ 
+ 		opp-2002000000 {
+ 			opp-hz = /bits/ 64 <2002000000>;
+-			opp-microvolt = <1087500>;
++			opp-microvolt = <925000>;
+ 		};
+ 
+ 		opp-1937000000 {
+ 			opp-hz = /bits/ 64 <1937000000>;
+-			opp-microvolt = <1075000>;
++			opp-microvolt = <906250>;
+ 		};
+ 
+ 		opp-1807000000 {
+ 			opp-hz = /bits/ 64 <1807000000>;
+-			opp-microvolt = <1043750>;
++			opp-microvolt = <868750>;
+ 		};
+ 
+ 		opp-1703000000 {
+ 			opp-hz = /bits/ 64 <1703000000>;
+-			opp-microvolt = <1025000>;
++			opp-microvolt = <837500>;
+ 		};
+ 
+ 		opp-1469000000 {
+ 			opp-hz = /bits/ 64 <1469000000>;
+-			opp-microvolt = <1000000>;
++			opp-microvolt = <781250>;
+ 		};
+ 
+ 		opp-1261000000 {
+ 			opp-hz = /bits/ 64 <1261000000>;
+-			opp-microvolt = <987500>;
++			opp-microvolt = <750000>;
+ 		};
+ 
+ 		opp-1170000000 {
+ 			opp-hz = /bits/ 64 <1170000000>;
+-			opp-microvolt = <975000>;
++			opp-microvolt = <731250>;
+ 		};
+ 
+ 		opp-1066000000 {
+ 			opp-hz = /bits/ 64 <1066000000>;
+-			opp-microvolt = <962500>;
++			opp-microvolt = <712500>;
+ 		};
+ 
+ 		opp-962000000 {
+ 			opp-hz = /bits/ 64 <962000000>;
+-			opp-microvolt = <950000>;
++			opp-microvolt = <700000>;
+ 		};
+ 
+ 		opp-858000000 {
+ 			opp-hz = /bits/ 64 <858000000>;
+-			opp-microvolt = <937500>;
++			opp-microvolt = <681250>;
+ 		};
+ 
+ 		opp-741000000 {
+ 			opp-hz = /bits/ 64 <741000000>;
+-			opp-microvolt = <925000>;
++			opp-microvolt = <662500>;
+ 		};
+ 	};
+ 
+@@ -331,8 +333,8 @@ pmu-mongoose-m2 {
+ 
+ 	thermal-zones {
+ 		/*
+-		 * Trips follow the stock N950F tables: CPU throttling from
+-		 * 83 C, the hardware limit at 115 C. The non-zero sensors are
++		 * CPU throttling from 95 C (stock N950F starts at 83 C), the
++		 * hardware limit at 115 C. The non-zero sensors are
+ 		 * hot spots, read through the stock -20 C "balance" offset.
+ 		 */
+ 		cpu_thermal: cpu-thermal {
+@@ -348,25 +350,19 @@ cpu_thermal: cpu-thermal {
+ 			 */
+ 			trips {
+ 				cpu_alert0: cpu-alert0 {
+-					temperature = <83000>;
++					temperature = <95000>;
+ 					hysteresis = <3000>;
+ 					type = "passive";
+ 				};
+ 
+ 				cpu_alert1: cpu-alert1 {
+-					temperature = <88000>;
++					temperature = <100000>;
+ 					hysteresis = <3000>;
+ 					type = "passive";
+ 				};
+ 
+ 				cpu_alert2: cpu-alert2 {
+-					temperature = <93000>;
+-					hysteresis = <3000>;
+-					type = "passive";
+-				};
+-
+-				cpu_alert3: cpu-alert3 {
+-					temperature = <98000>;
++					temperature = <110000>;
+ 					hysteresis = <3000>;
+ 					type = "passive";
+ 				};
+@@ -386,23 +382,16 @@ map0 {
+ 							 <&cpu0 THERMAL_NO_LIMIT 1>;
+ 				};
+ 
+-				/* big <= 1937 MHz, little <= 1248 MHz */
++				/* big <= 1469 MHz, little <= 1053 MHz */
+ 				map1 {
+ 					trip = <&cpu_alert1>;
+-					cooling-device = <&cpu4 3 5>,
+-							 <&cpu0 2 3>;
+-				};
+-
+-				/* big <= 1469 MHz, little <= 1053 MHz */
+-				map2 {
+-					trip = <&cpu_alert2>;
+ 					cooling-device = <&cpu4 6 8>,
+ 							 <&cpu0 3 4>;
+ 				};
+ 
+ 				/* big <= 1066 MHz, little <= 598 MHz */
+-				map3 {
+-					trip = <&cpu_alert3>;
++				map2 {
++					trip = <&cpu_alert2>;
+ 					cooling-device = <&cpu4 9 12>,
+ 							 <&cpu0 5 6>;
+ 				};
+-- 
+2.53.0
+

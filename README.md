@@ -35,9 +35,9 @@ the uniLoader board files, and the phone-side runtime addons.
 |---|---|
 | Boot | Samsung bootloader → uniLoader → mainline kernel → postmarketOS rootfs from **internal UFS** (or microSD) |
 | Display | Native KMS: **DECON_f → dual DSC encoders → DSI (4 lanes) → S6E3HA6** AMOLED, 1440×2960, command mode with real vblank (59 Hz panel refresh), zero-copy GPU scan-out (PRIME) |
-| CPU frequency scaling | Stock maxima: 741 MHz – **2.314 GHz** (big Mongoose) / 455 MHz – 1.69 GHz (little A53), `schedutil`, with **voltage scaling** via the S2MPS17 PMIC over a ported SPEEDY bus driver. Cluster clocks/rails and voltages match the phone's ECT tables. The dts gives the scheduler the cores' relative speed (`capacity-dmips-mhz`, M2 ≈ 2.45× an A53), so busy threads run on the big cores. |
+| CPU frequency scaling | Stock maxima: 741 MHz – **2.314 GHz** (big Mongoose) / 455 MHz – 1.69 GHz (little A53), `schedutil`, with **voltage scaling** via the S2MPS17 PMIC over a ported SPEEDY bus driver. Cluster clocks/rails match the phone's ECT tables. CPU voltages are the stock ones for the developer's chip (ASV fuses at 0x10009000: table 8, big group 6, little group 7) **plus 25 mV** — the bare table froze the phone in normal use. Each Exynos 8895 is fused into its own bin, so a different chip may need more: if yours freezes under load, raise `opp-microvolt` in `exynos8895-cpu-stock-volts.patch` (or drop that patch for the old, conservative worst-bin voltages). The dts gives the scheduler the cores' relative speed (`capacity-dmips-mhz`, M2 ≈ 2.45× an A53), so busy threads run on the big cores. |
 | RAM | All **6 GB** banks (5.6 GB usable: ~230 MB is reserved for firmware carveouts). The 4th bank at `0x900000000` is normally filled in by Samsung's bootloader; our dts lists it. |
-| Thermal | Exynos 8895 **TMU** (mainline `exynos_tmu` + an 8895 variant): CPU throttling from 83 °C with graded trips, critical shutdown at 115 °C. Sustained all-core load holds ~88 °C. Without it the SoC ran away past 150 °C and reset. |
+| Thermal | Exynos 8895 **TMU** (mainline `exynos_tmu` + an 8895 variant): CPU throttling from **95 °C**, with further steps at 100 and 110 °C (stock Samsung starts at 83 °C), critical shutdown at 115 °C. With the stock voltages a 20 s all-core run at 2.3 GHz reaches ~69 °C. Without it the SoC ran away past 150 °C and reset. |
 | GPU | Mali-G71 MP20 via mainline **panfrost** at **546 MHz** (stock max, ECT voltage + margin), Mesa kmsro pairs it with the display; kmscube 60 fps |
 | Brightness | Real panel brightness through a backlight device in the panel driver: it sets the AMOLED off ratio (AOR, 0xB1) on top of the bootloader's gamma, so 100 % is the bootloader's level and the slider dims from there. KWin uses it instead of recolouring every frame on the GPU. |
 | Touchscreen | Samsung s6sy761 (Y661), multi-touch, works in console **and** Plasma Mobile |
@@ -103,7 +103,9 @@ aports/                 postmarketOS device packages (build these with pmbootstr
                                    capacity for the scheduler),
                                    greatlte-panel-backlight.patch (AOR brightness),
                                    exynos8895-speaker.patch (MAX98506 driver, ABOX
-                                   UAIF4 speaker path, DMA position fix, dts)
+                                   UAIF4 speaker path, DMA position fix, dts),
+                                   exynos8895-cpu-stock-volts.patch (stock CPU
+                                   voltages + 25 mV, throttling from 95 °C)
   device-samsung-greatlte/         device package (device info, zram/swap settings)
   uniloader-samsung-greatlte/      bootloader package
 uniloader-files/        our uniLoader board port (2 files; applied onto upstream uniLoader)
