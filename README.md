@@ -52,6 +52,7 @@ the uniLoader board files, and the phone-side runtime addons.
 | Charging | ~1 A from USB. A small MAX77865 charger driver services the charge watchdog the bootloader leaves on (otherwise charging stops ~3 min after boot) and reports the charger to Plasma. Current limits are the bootloader's. |
 | Audio | **Bottom loudspeaker** (default output) and **earpiece** (top receiver) for media and system sound through PulseAudio/Plasma, volume keys included. The speaker is a MAX98506 amplifier (new mainline driver) on ABOX UAIF4, whose pins are `gph3-0..3`; it plays at 48 kHz at the stock +13 dB gain, and PulseAudio does its volume in software (the amp mutes briefly on every gain change). A new mainline **ABOX** driver boots Samsung's Calliope firmware on the audio subsystem's Cortex-A7 and streams over UAIF0 to the **CS47L93** codec (madera driver, I2S provider, FLL from the 26 MHz PMU clock output). Capture path works (loopback-verified). ALSA UCM profile in `rootfs-addons/`; earpiece volume capped at −6 dB where it starts to distort. Headphone jack routed but untested (no jack detection yet). |
 | Screen off | The power button turns the panel off (display off + sleep in) and back on. Tap-to-wake is KWin's `DoubleTapWakeup` (`~/.config/kwinrc`, `[Wayland]`); set it to `false` to wake only with the power button. |
+| Memory / swap | 5.5 GB usable RAM; zram swap (lzo-rle, 150 % of RAM, priority 300) backed by a 10 GB swap file (priority 100). The kernel has only the LZO zram backend, so deviceinfo sets the algorithm (the zstd default left zram off). On a small microSD, lower `swap_size` in `/etc/conf.d/swapfile`. |
 | Internal storage | Toshiba THGAF4G9N4LBAIRA 64 GB **UFS 2.1**, mainline `ufs-exynos` with an 8895 variant: **HS-G3 rate B ×2 lanes, ~600 MB/s**. Root on `USERDATA` (sda21, 52.7 GB), `/boot` on `CACHE` (sda16). All 21 GPT partitions + boot/RPMB LUNs visible. |
 | microSD | Optional now; works at UHS SDR50 (heavy reads can still error, see below) |
 
@@ -103,7 +104,7 @@ aports/                 postmarketOS device packages (build these with pmbootstr
                                    greatlte-panel-backlight.patch (AOR brightness),
                                    exynos8895-speaker.patch (MAX98506 driver, ABOX
                                    UAIF4 speaker path, DMA position fix, dts)
-  device-samsung-greatlte/         device package (initramfs hooks, device info)
+  device-samsung-greatlte/         device package (device info, zram/swap settings)
   uniloader-samsung-greatlte/      bootloader package
 uniloader-files/        our uniLoader board port (2 files; applied onto upstream uniLoader)
 rootfs-addons/          files to install into the phone rootfs
@@ -120,6 +121,7 @@ rootfs-addons/          files to install into the phone rootfs
   firmware/                         BCM4361 wifi firmware + board NVRAM + BT .hcd,
                                     ABOX Calliope audio firmware (calliope_*.bin)
   usr-share-alsa-ucm2/              ALSA UCM profile (speaker / earpiece / headphones)
+  etc-pulse-default.pa.d/           PulseAudio: default to the bottom speaker at every start
 tools/                  install-rootfs-addons.sh (put rootfs-addons into a pmbootstrap image),
                         soak.sh (hash-checked per-CPU load test for clocks/thermals),
                         ect_parse.py (dump the bootloader's ECT voltage/PLL tables),
@@ -294,6 +296,9 @@ native display.
   a bnep network to a laptop NAP bridge. Details + laptop setup in
   docs/BRINGUP.md.
 - **Do not** leave big WiFi downloads running unattended (see known issues).
+- **Elisa 26.08** renders its placeholder cover at 13824×13824 px on a scale-3
+  screen (~760 MB) and gets OOM-killed without swap. It starts with the zram +
+  swap file setup; fixed upstream (Elisa commit c5d1a5c), expected in 26.12.
 
 ## Credits & provenance
 

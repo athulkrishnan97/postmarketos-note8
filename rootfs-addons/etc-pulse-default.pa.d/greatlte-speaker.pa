@@ -1,0 +1,5 @@
+# greatlte: prefer the bottom speaker over the earpiece at every start.
+# module-default-device-restore otherwise brings back whatever default was
+# saved last (often the earpiece), overriding the UCM priorities.
+.nofail
+set-default-sink alsa_output.platform-sound.HiFi__Speaker__sink

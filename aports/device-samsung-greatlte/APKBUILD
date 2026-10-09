@@ -3,7 +3,7 @@ maintainer="athul <athul@postmarketos.org>"
 pkgname=device-samsung-greatlte
 pkgdesc="Samsung Galaxy Note 8"
 pkgver=1
-pkgrel=2
+pkgrel=3
 url="https://postmarketos.org"
 license="MIT"
 arch="aarch64"
@@ -33,5 +33,5 @@ kernel() {
 }
 
 sha512sums="
-83c70ebe5d4e254d166e189f07f0e102dc10e54fc03106238fb0ca2b5f9f47da59b0cc6db3ed5e320205738ed8e3458641944b8cd10bfc6e5226a96c19ebb8f3  deviceinfo
+ad5871dd81c535c2172e4075ce56ef0a99643800d589d4ea10de1d12084e88031a58cd5ea3e05c86723fa4ac62158cbb067631c19d94464e44ddadc4925aa5be  deviceinfo
 "

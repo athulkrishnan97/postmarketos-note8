@@ -53,8 +53,12 @@ install -m 644 "$ADDONS/firmware/calliope_sram.bin" "$ADDONS/firmware/calliope_d
 	"$ADDONS/firmware/calliope_iva.bin" "$MNT/lib/firmware/"
 mkdir -p "$MNT/usr/share/alsa/ucm2"
 cp -a "$ADDONS/usr-share-alsa-ucm2/." "$MNT/usr/share/alsa/ucm2/"
+# PulseAudio: start on the bottom speaker, not the last saved default
+install -D -m 644 "$ADDONS/etc-pulse-default.pa.d/greatlte-speaker.pa" \
+	"$MNT/etc/pulse/default.pa.d/greatlte-speaker.pa"
 
-for s in g3d hciattach local; do
+# zram swap (lzo-rle) and the swap file behind it are sized from deviceinfo
+for s in g3d hciattach local postmarketos-zram-swap swapfile; do
 	ln -sf "/etc/init.d/$s" "$MNT/etc/runlevels/default/$s"
 done
 

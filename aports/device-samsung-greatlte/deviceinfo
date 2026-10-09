@@ -28,3 +28,10 @@ deviceinfo_create_initfs_extra="true"
 
 # Heimdall related
 deviceinfo_flash_heimdall_partition_kernel="BOOT"
+
+# Swap
+# The kernel's zram has only the LZO backend; the default (zstd) fails and
+# leaves zram swap off.
+deviceinfo_zram_swap_algo="lzo-rle"
+# Swap file behind zram (lower priority), in MB
+deviceinfo_swap_size_recommended="10240"
