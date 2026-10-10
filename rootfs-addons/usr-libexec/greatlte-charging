@@ -69,7 +69,7 @@ apply() { # input_mA charge_mA
 
 min() { [ $1 -lt $2 ] && echo $1 || echo $2; }
 
-last=; tries=0; hot=0; cold=0; hold=0; pd_mv=5000
+last=; tries=0; hot=0; cold=0; hold=0; pd_mv=5000; snk_at=0
 while :; do
 	src=none; mv=5000; in=500; cc=500; pdos=; cur=0; rp=0; chgtyp=0
 
@@ -124,6 +124,18 @@ while :; do
 		case $src in pd|typec-*) cc=$(min 2350 $(( mv * in * 9 / 10 / 4350 ))) ;; esac
 	else
 		tries=0; pd_mv=5000; hold=0
+		# A dual-role partner (e.g. a laptop's USB-C port) can leave the
+		# S2MM005 attached as the power source, but there is no VBUS boost
+		# (OTG) on mainline, so nothing flows. Put it back to sink like
+		# stock s2mm005_rprd_mode_change(TYPE_C_ATTACH_UFP).
+		func=; [ -n "$PD_BUS" ] && func=$(pd_read 0x00 0x20 4)
+		if [ -n "$func" ] && [ $(( (func >> 24) & 3 )) -eq 3 ] && [ $(( $(date +%s) - snk_at )) -ge 10 ]; then
+			logger -t $TAG "USB-C attached as power source (no OTG): forcing sink"
+			i2ctransfer -y $PD_BUS w4@0x33 0x00 0x10 0x03 0x12	# detach
+			sleep 1
+			i2ctransfer -y $PD_BUS w4@0x33 0x00 0x10 0x03 0x14	# sink
+			snk_at=$(date +%s)
+		fi
 	fi
 
 	# battery temperature (millidegrees C)

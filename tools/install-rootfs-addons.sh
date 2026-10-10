@@ -56,6 +56,10 @@ cp -a "$ADDONS/usr-share-alsa-ucm2/." "$MNT/usr/share/alsa/ucm2/"
 # PulseAudio: start on the bottom speaker, not the last saved default
 install -D -m 644 "$ADDONS/etc-pulse-default.pa.d/greatlte-speaker.pa" \
 	"$MNT/etc/pulse/default.pa.d/greatlte-speaker.pa"
+# ...and again after login: callaudiod makes the card's first sink (Earpiece) default
+install -D -m 755 "$ADDONS/usr-libexec/greatlte-speaker-default" "$MNT/usr/libexec/greatlte-speaker-default"
+install -D -m 644 "$ADDONS/etc-xdg-autostart/greatlte-speaker-default.desktop" \
+	"$MNT/etc/xdg/autostart/greatlte-speaker-default.desktop"
 
 # Charging: USB PD 9 V, per-source current limits, battery temperature
 install -m 755 "$ADDONS/etc-init.d/greatlte-charging" "$MNT/etc/init.d/greatlte-charging"

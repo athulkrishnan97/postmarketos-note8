@@ -116,6 +116,8 @@ rootfs-addons/          files to install into the phone rootfs
   etc-init.d/hciattach              Bluetooth UART attach (BCM4361, 3 Mbaud)
   etc-init.d/greatlte-charging      charging policy service (runs usr-libexec/greatlte-charging)
   usr-libexec/greatlte-charging     USB PD 9 V request, per-source current limits, temperature cutback
+  usr-libexec/greatlte-speaker-default  speaker as default output after login (callaudiod picks the earpiece)
+  etc-xdg-autostart/                runs greatlte-speaker-default at login
   etc-umtprd/umtprd.conf            MTP: /home as "Home", files owned by uid 10000
   usr-local-bin/charger             live charger/battery view (`charger`, `charger -1`)
   usr-local-bin/usb-mode            switch USB mode (developer / mtp / tethering / charging)
